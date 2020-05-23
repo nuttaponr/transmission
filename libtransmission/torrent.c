@@ -1860,8 +1860,14 @@ stopTorrent (void * vtor)
   tr_torrentLock (tor);
 
   tr_verifyRemove (tor);
+  const bool wasQueued = tr_torrentIsQueued( tor );
+  torrentSetQueued (tor, false);
   tr_peerMgrStopTorrent (tor);
-  tr_announcerTorrentStopped (tor);
+  //tr_announcerTorrentStopped (tor);
+  
+   if( !wasQueued )
+    tr_announcerTorrentStopped( tor );
+
   tr_cacheFlushTorrent (tor->session->cache, tor);
 
   tr_fdTorrentClose (tor->session, tor->uniqueId);
@@ -1869,7 +1875,7 @@ stopTorrent (void * vtor)
   if (!tor->isDeleting)
     tr_torrentSave (tor);
 
-  torrentSetQueued (tor, false);
+  //torrentSetQueued (tor, false);
 
   tr_torrentUnlock (tor);
 
