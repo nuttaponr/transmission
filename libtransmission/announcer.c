@@ -73,12 +73,22 @@ enum
 ****
 ***/
 
+bool isMod;
+
 const char*
 tr_announce_event_get_string (tr_announce_event e)
 {
     switch (e)
     {
-        case TR_ANNOUNCE_EVENT_COMPLETED:  return "completed";
+        case TR_ANNOUNCE_EVENT_COMPLETED: 
+        if(isMod == true)
+        {
+            return "completed";
+        }        
+        else
+        {
+            return "stopped";
+        }
         case TR_ANNOUNCE_EVENT_STARTED:    return "started";
         case TR_ANNOUNCE_EVENT_STOPPED:    return "stopped";
         default:                           return "";
@@ -174,6 +184,8 @@ tr_announcerInit (tr_session * session)
     tr_timerAdd (a->upkeepTimer, UPKEEP_INTERVAL_SECS, 0);
 
     session->announcer = a;
+
+    isMod = session -> speedLimitEnabled[0];
 }
 
 static void flushCloseMessages (tr_announcer * announcer);
@@ -915,9 +927,18 @@ announce_request_new (const tr_announcer  * announcer,
     req->up = tier->byteCounts[TR_ANN_UP];
     req->down = tier->byteCounts[TR_ANN_DOWN];
     req->corrupt = tier->byteCounts[TR_ANN_CORRUPT];
-    req->leftUntilComplete = tr_torrentHasMetadata (tor)
+    if (isMod == true)
+    {
+      req->leftUntilComplete = tr_torrentHasMetadata (tor)
             ? tor->info.totalSize - tr_torrentHaveTotal (tor)
             : ~ (uint64_t)0;
+    }
+    else
+    {
+        req->leftUntilComplete = tr_torrentHasMetadata (tor)
+            ? tor->info.totalSize
+            : ~ (uint64_t)0;
+    }
     req->event = event;
     req->numwant = event == TR_ANNOUNCE_EVENT_STOPPED ? 0 : NUMWANT;
     req->key = announcer->key;
