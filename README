@@ -53,3 +53,19 @@ BUILDING
 
   Notes for building on Solaris' C compiler:  User av reports success with
   this invocation: ./configure CC=c99 CXX=CC CFLAGS='-D__EXTENSIONS__ -mt'
+
+  Building Transmission on Debian
+
+    $ cd Transmission
+    $ sudo bash ./autogen.sh
+    $ ./configure -q --disable-gtk --disable-nls
+    $ sudo make
+    $ sudo checkinstall 
+    $ dpkg -i transmission_*.deb
+    $ transmission-daemon -f
+    $ sudo nano nano $HOME/.config/transmission-daemon/settings.json
+    $ sudo killall -HUP transmission-daemon
+
+    Making the file executable from https://trac.transmissionbt.com/wiki/Scripts/initd
+    $ sudo chmod +x /etc/init.d/transmission-daemon
+    $ sudo chown root:root /etc/init.d/transmission-daemon

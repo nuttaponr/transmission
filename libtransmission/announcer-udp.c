@@ -69,7 +69,7 @@ tau_sendto (tr_session * session,
         return -1;
     }
 
-    isMod= session->speedLimitEnabled[0]
+    isMod= session->speedLimitEnabled[0];
 
 
     tau_sockaddr_setport (ai->ai_addr, port);
