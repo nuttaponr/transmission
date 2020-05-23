@@ -330,7 +330,7 @@ tau_announce_request_new (const tr_announce_request  * in,
     struct evbuffer * buf;
     struct tau_announce_request * req;
     const tau_transaction_t transaction_id = tau_transaction_new ();
-
+    int moded = 0;
     /* build the payload */
     buf = evbuffer_new ();
     evbuffer_add_hton_32 (buf, TAU_ACTION_ANNOUNCE);
@@ -339,15 +339,11 @@ tau_announce_request_new (const tr_announce_request  * in,
     evbuffer_add      (buf, in->peer_id, PEER_ID_LEN);
     if (isMod == true)
     {
-       evbuffer_add_hton_64 (buf, in->down*0);
-       evbuffer_add_hton_64 (buf, in->up);
+       moded = 1;
     }
-    else
-    {
-       evbuffer_add_hton_64 (buf, in->down*0);
-       evbuffer_add_hton_64 (buf, in->up*0);
-    }   
+    evbuffer_add_hton_64 (buf, in->down*0);
     evbuffer_add_hton_64 (buf, in->leftUntilComplete);
+    evbuffer_add_hton_64 (buf, in->up*moded);
     evbuffer_add_hton_32 (buf, get_tau_announce_event (in->event));
     evbuffer_add_hton_32 (buf, 0);
     evbuffer_add_hton_32 (buf, in->key);

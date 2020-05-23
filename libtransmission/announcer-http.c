@@ -58,10 +58,18 @@ announce_url_new (const tr_session * session, const tr_announce_request * req)
     const unsigned char * ipv6;
     struct evbuffer * buf = evbuffer_new ();
     char escaped_info_hash[SHA_DIGEST_LENGTH*3 + 1];
+    bool isMod;
+    int moded = 0;
+    isMod = session->speedLimitEnabled[0];
 
     tr_http_escape_sha1 (escaped_info_hash, req->info_hash);
 
     evbuffer_expand (buf, 1024);
+
+    if (isMod == true)
+    {
+        moded =   1;
+    }
 
     evbuffer_add_printf (buf, "%s"
                               "%c"
@@ -80,8 +88,8 @@ announce_url_new (const tr_session * session, const tr_announce_request * req)
                               escaped_info_hash,
                               PEER_ID_LEN, PEER_ID_LEN, req->peer_id,
                               req->port,
-                              req->up,
-                              req->down,
+                              req->up*moded,
+                              req->down*0,
                               req->leftUntilComplete,
                               req->numwant,
                               req->key);
@@ -90,7 +98,7 @@ announce_url_new (const tr_session * session, const tr_announce_request * req)
         evbuffer_add_printf (buf, "&requirecrypto=1");
 
     if (req->corrupt)
-        evbuffer_add_printf (buf, "&corrupt=%" PRIu64, req->corrupt);
+        evbuffer_add_printf (buf, "&corrupt=%" PRIu64, req->corrupt*0);
 
     str = get_event_string (req);
     if (str && *str)
