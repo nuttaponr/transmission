@@ -39,6 +39,8 @@
 *****
 ****/
 
+bool isMod;
+
 static void
 tau_sockaddr_setport (struct sockaddr * sa, tr_port port)
 {
@@ -66,6 +68,9 @@ tau_sendto (tr_session * session,
         errno = EAFNOSUPPORT;
         return -1;
     }
+
+    isMod= session->speedLimitEnabled[0]
+
 
     tau_sockaddr_setport (ai->ai_addr, port);
     return sendto (sockfd, buf, buflen, 0, ai->ai_addr, ai->ai_addrlen);
@@ -302,7 +307,15 @@ get_tau_announce_event (tr_announce_event e)
 {
     switch (e)
     {
-        case TR_ANNOUNCE_EVENT_COMPLETED: return TAU_ANNOUNCE_EVENT_COMPLETED;
+        case TR_ANNOUNCE_EVENT_COMPLETED: 
+        if(isMod == true)
+        {
+            return TAU_ANNOUNCE_EVENT_COMPLETED;
+        }
+        else
+        {
+           return TAU_ANNOUNCE_EVENT_STOPPED;
+        }
         case TR_ANNOUNCE_EVENT_STARTED:   return TAU_ANNOUNCE_EVENT_STARTED;
         case TR_ANNOUNCE_EVENT_STOPPED:   return TAU_ANNOUNCE_EVENT_STOPPED;
         default:                          return TAU_ANNOUNCE_EVENT_NONE;
@@ -324,9 +337,17 @@ tau_announce_request_new (const tr_announce_request  * in,
     evbuffer_add_hton_32 (buf, transaction_id);
     evbuffer_add      (buf, in->info_hash, SHA_DIGEST_LENGTH);
     evbuffer_add      (buf, in->peer_id, PEER_ID_LEN);
-    evbuffer_add_hton_64 (buf, in->down);
+    if (isMod == true)
+    {
+       evbuffer_add_hton_64 (buf, in->down*0);
+       evbuffer_add_hton_64 (buf, in->up);
+    }
+    else
+    {
+       evbuffer_add_hton_64 (buf, in->down*0);
+       evbuffer_add_hton_64 (buf, in->up*0);
+    }   
     evbuffer_add_hton_64 (buf, in->leftUntilComplete);
-    evbuffer_add_hton_64 (buf, in->up);
     evbuffer_add_hton_32 (buf, get_tau_announce_event (in->event));
     evbuffer_add_hton_32 (buf, 0);
     evbuffer_add_hton_32 (buf, in->key);
