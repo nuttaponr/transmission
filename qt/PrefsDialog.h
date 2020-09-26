@@ -4,18 +4,15 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_PREFS_DIALOG_H
-#define QTR_PREFS_DIALOG_H
+#pragma once
 
 #include <QMap>
-#include <QSet>
 
 #include "BaseDialog.h"
+#include "Macros.h"
 #include "Prefs.h"
-
 #include "ui_PrefsDialog.h"
 
 class QHttp;
@@ -25,72 +22,73 @@ class QString;
 class Prefs;
 class Session;
 
-class PrefsDialog: public BaseDialog
+class PrefsDialog : public BaseDialog
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(PrefsDialog)
 
-  public:
-    PrefsDialog (Session&, Prefs&, QWidget * parent = nullptr);
-    virtual ~PrefsDialog ();
+public:
+    PrefsDialog(Session&, Prefs&, QWidget* parent = nullptr);
 
-  private:
-    typedef QMap<int, QWidget*> key2widget_t;
+private:
+    using key2widget_t = QMap<int, QWidget*>;
 
-  private:
-    bool updateWidgetValue (QWidget * widget, int prefKey);
-    void linkWidgetToPref (QWidget * widget, int prefKey);
-    void updateBlocklistLabel ();
+private:
+    bool updateWidgetValue(QWidget* widget, int pref_key);
+    void linkWidgetToPref(QWidget* widget, int pref_key);
+    void updateBlocklistLabel();
+    void updateDownloadingWidgetsLocality();
 
-    void setPref (int key, const QVariant& v);
+    void setPref(int key, QVariant const& v);
 
-    void initDownloadingTab ();
-    void initSeedingTab ();
-    void initSpeedTab ();
-    void initPrivacyTab ();
-    void initNetworkTab ();
-    void initDesktopTab ();
-    void initRemoteTab ();
+    void initDownloadingTab();
+    void initSeedingTab();
+    void initSpeedTab();
+    void initPrivacyTab();
+    void initNetworkTab();
+    void initDesktopTab();
+    void initRemoteTab();
 
-  private slots:
-    void checkBoxToggled (bool checked);
-    void spinBoxEditingFinished ();
-    void timeEditingFinished ();
-    void lineEditingFinished ();
-    void pathChanged (const QString& path);
-    void refreshPref (int key);
-    void encryptionEdited (int);
-    void altSpeedDaysEdited (int);
-    void sessionUpdated ();
-    void onPortTested (bool);
-    void onPortTest ();
-    void onIdleLimitChanged ();
-    void onQueueStalledMinutesChanged ();
+private slots:
+    void checkBoxToggled(bool checked);
+    void spinBoxEditingFinished();
+    void timeEditingFinished();
+    void lineEditingFinished();
+    void pathChanged(QString const& path);
+    void refreshPref(int key);
+    void encryptionEdited(int);
+    void altSpeedDaysEdited(int);
+    void sessionUpdated();
+    void onPortTested(bool);
+    void onPortTest();
+    void onIdleLimitChanged();
+    void onQueueStalledMinutesChanged();
 
-    void onUpdateBlocklistClicked ();
-    void onUpdateBlocklistCancelled ();
-    void onBlocklistDialogDestroyed (QObject *);
-    void onBlocklistUpdated (int n);
+    void onUpdateBlocklistClicked();
+    void onUpdateBlocklistCancelled();
+    void onBlocklistDialogDestroyed(QObject*);
+    void onBlocklistUpdated(int n);
 
-  private:
-    Session& mySession;
-    Prefs& myPrefs;
+private:
+    Session& session_;
+    Prefs& prefs_;
 
-    Ui::PrefsDialog ui;
+    Ui::PrefsDialog ui_ = {};
 
-    key2widget_t myWidgets;
-    const bool myIsServer;
-    QWidgetList myWebWidgets;
-    QWidgetList myWebAuthWidgets;
-    QWidgetList myWebWhitelistWidgets;
-    QWidgetList myProxyWidgets;
-    QWidgetList myProxyAuthWidgets;
-    QWidgetList mySchedWidgets;
-    QWidgetList myBlockWidgets;
-    QWidgetList myUnsupportedWhenRemote;
+    bool const is_server_;
+    bool is_local_ = {};
 
-    int myBlocklistHttpTag;
-    QHttp * myBlocklistHttp;
-    QMessageBox * myBlocklistDialog;
+    key2widget_t widgets_;
+    QWidgetList web_widgets_;
+    QWidgetList web_auth_widgets_;
+    QWidgetList web_whitelist_widgets_;
+    QWidgetList proxy_widgets_;
+    QWidgetList proxy_auth_widgets_;
+    QWidgetList sched_widgets_;
+    QWidgetList block_widgets_;
+    QWidgetList unsupported_when_remote_;
+
+    int blocklist_http_tag_ = {};
+    QHttp* blocklist_http_ = {};
+    QMessageBox* blocklist_dialog_ = {};
 };
-
-#endif // QTR_PREFS_DIALOG_H

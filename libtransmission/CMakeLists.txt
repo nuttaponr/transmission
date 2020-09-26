@@ -1,75 +1,96 @@
 project(libtr)
 
-configure_file(version.h.in version.h)
+configure_file(
+  version.h.in
+  version.h
+)
+
+set(PROJECT_FILES
+  announcer.c
+  announcer-http.c
+  announcer-udp.c
+  bandwidth.c
+  bitfield.c
+  blocklist.c
+  cache.c
+  clients.c
+  completion.c
+  crypto.c
+  crypto-utils.c
+  crypto-utils-cyassl.c
+  crypto-utils-fallback.c
+  crypto-utils-openssl.c
+  crypto-utils-polarssl.c
+  error.c
+  fdlimit.c
+  file.c
+  file-posix.c
+  file-win32.c
+  handshake.c
+  history.c
+  inout.c
+  list.c
+  log.c
+  magnet.c
+  makemeta.c
+  metainfo.c
+  natpmp.c
+  net.c
+  peer-io.c
+  peer-mgr.c
+  peer-msgs.c
+  platform.c
+  platform-quota.c
+  port-forwarding.c
+  ptrarray.c
+  quark.c
+  resume.c
+  rpcimpl.c
+  rpc-server.c
+  session.c
+  session-id.c
+  subprocess-posix.c
+  subprocess-win32.c
+  stats.c
+  torrent.c
+  torrent-ctor.c
+  torrent-magnet.c
+  tr-dht.c
+  trevent.c
+  tr-assert.c
+  tr-getopt.c
+  tr-lpd.c
+  tr-udp.c
+  tr-utp.c
+  upnp.c
+  utils.c
+  variant-benc.c
+  variant.c
+  variant-json.c
+  verify.c
+  watchdir.c
+  watchdir-generic.c
+  watchdir-inotify.c
+  watchdir-kqueue.c
+  watchdir-win32.c
+  web.c
+  webseed.c
+)
+
+string(REPLACE ";" " " C_WARNING_FLAGS_STR "${C_WARNING_FLAGS}")
+foreach(FILE ${PROJECT_FILES})
+  set_source_files_properties(${FILE} PROPERTIES COMPILE_FLAGS "${C_WARNING_FLAGS_STR}")
+endforeach()
+
+set(THIRD_PARTY_FILES
+  ConvertUTF.c
+  jsonsl.c
+  wildmat.c
+)
 
 set(${PROJECT_NAME}_SOURCES
-    announcer.c
-    announcer-http.c
-    announcer-udp.c
-    bandwidth.c
-    bitfield.c
-    blocklist.c
-    cache.c
-    clients.c
-    completion.c
-    ConvertUTF.c
-    crypto.c
-    crypto-utils.c
-    crypto-utils-cyassl.c
-    crypto-utils-fallback.c
-    crypto-utils-openssl.c
-    crypto-utils-polarssl.c
-    error.c
-    fdlimit.c
-    file.c
-    file-posix.c
-    file-win32.c
-    handshake.c
-    history.c
-    inout.c
-    list.c
-    log.c
-    magnet.c
-    makemeta.c
-    metainfo.c
-    natpmp.c
-    net.c
-    peer-io.c
-    peer-mgr.c
-    peer-msgs.c
-    platform.c
-    platform-quota.c
-    port-forwarding.c
-    ptrarray.c
-    quark.c
-    resume.c
-    rpcimpl.c
-    rpc-server.c
-    session.c
-    stats.c
-    torrent.c
-    torrent-ctor.c
-    torrent-magnet.c
-    tr-dht.c
-    trevent.c
-    tr-getopt.c
-    tr-lpd.c
-    tr-udp.c
-    tr-utp.c
-    upnp.c
-    utils.c
-    variant-benc.c
-    variant.c
-    variant-json.c
-    verify.c
-    watchdir.c
-    watchdir-generic.c
-    watchdir-inotify.c
-    watchdir-kqueue.c
-    watchdir-win32.c
-    web.c
-    webseed.c
-    wildmat.c
+  ${PROJECT_FILES}
+  ${THIRD_PARTY_FILES}
 )
 
 set_source_files_properties(crypto-utils-fallback.c PROPERTIES HEADER_FILE_ONLY ON)
@@ -92,9 +113,9 @@ else()
 endif()
 
 if(WIN32)
-    set_source_files_properties(file-posix.c PROPERTIES HEADER_FILE_ONLY ON)
+    set_source_files_properties(file-posix.c subprocess-posix.c PROPERTIES HEADER_FILE_ONLY ON)
 else()
-    set_source_files_properties(file-win32.c watchdir-win32.c PROPERTIES HEADER_FILE_ONLY ON)
+    set_source_files_properties(file-win32.c subprocess-win32.c watchdir-win32.c PROPERTIES HEADER_FILE_ONLY ON)
 endif()
 
 set(${PROJECT_NAME}_PUBLIC_HEADERS
@@ -105,7 +126,10 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
     makemeta.h
     quark.h
     rpcimpl.h
+    session-id.h
+    tr-assert.h
     tr-getopt.h
+    tr-macros.h
     transmission.h
     utils.h
     variant.h
@@ -139,6 +163,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     peer-io.h
     peer-mgr.h
     peer-msgs.h
+    peer-socket.h
     platform.h
     platform-quota.h
     port-forwarding.h
@@ -146,6 +171,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     resume.h
     rpc-server.h
     session.h
+    subprocess.h
     stats.h
     torrent.h
     torrent-magnet.h
@@ -194,6 +220,10 @@ if(USE_SYSTEM_B64)
     add_definitions(-DUSE_SYSTEM_B64)
 endif()
 
+if(CYASSL_IS_WOLFSSL)
+    add_definitions(-DCYASSL_IS_WOLFSSL)
+endif()
+
 if(POLARSSL_IS_MBEDTLS)
     add_definitions(-DPOLARSSL_IS_MBEDTLS)
 endif()
@@ -201,6 +231,10 @@ endif()
 include_directories(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_BINARY_DIR}
+)
+
+include_directories(
+    SYSTEM
     ${ZLIB_INCLUDE_DIRS}
     ${CRYPTO_INCLUDE_DIRS}
     ${CURL_INCLUDE_DIRS}
@@ -213,11 +247,11 @@ include_directories(
 )
 
 if(ICONV_FOUND)
-    include_directories(${ICONV_INCLUDE_DIRS})
+    include_directories(SYSTEM ${ICONV_INCLUDE_DIRS})
 endif()
 
 if(ENABLE_UTP)
-    include_directories(${TP_TOP}/libutp)
+    include_directories(SYSTEM ${TP_TOP}/libutp)
 endif()
 
 add_library(${TR_NAME} STATIC
@@ -248,6 +282,7 @@ target_link_libraries(${TR_NAME}
     ${B64_LIBRARIES}
     ${LIBINTL_LIBRARY}
     ${LIBM_LIBRARY}
+    ${TR_NETWORK_LIBRARIES}
 )
 
 if(ICONV_FOUND)
@@ -255,42 +290,5 @@ if(ICONV_FOUND)
 endif()
 
 if(WIN32)
-    target_link_libraries(${TR_NAME} iphlpapi ws2_32)
-endif()
-
-if(ENABLE_TESTS)
-    add_library(${TR_NAME}-test STATIC
-        libtransmission-test.c
-        libtransmission-test.h
-    )
-
-    target_link_libraries(${TR_NAME}-test ${TR_NAME})
-    set_property(TARGET ${TR_NAME}-test PROPERTY FOLDER "UnitTests")
-
-    set(crypto-test_ADD_SOURCES crypto-test-ref.h)
-
-    set(watchdir@generic-test_DEFINITIONS WATCHDIR_TEST_FORCE_GENERIC)
-
-    foreach(T bitfield blocklist clients crypto error file history json magnet metainfo move peer-msgs quark rename rpc session
-              tr-getopt utils variant watchdir watchdir@generic)
-        set(TP ${TR_NAME}-test-${T})
-        if(T MATCHES "^([^@]+)@.+$")
-            string(REPLACE "@" "_" TP "${TP}")
-            set(${TP}_TEST_BASENAME "${CMAKE_MATCH_1}")
-        else()
-            set(${TP}_TEST_BASENAME "${T}")
-        endif()
-        add_executable(${TP} ${${TP}_TEST_BASENAME}-test.c ${${T}-test_ADD_SOURCES})
-        target_link_libraries(${TP} ${TR_NAME} ${TR_NAME}-test)
-        if(DEFINED ${T}-test_DEFINITIONS)
-            target_compile_definitions(${TP} PRIVATE ${${T}-test_DEFINITIONS})
-        endif()
-        add_test(NAME ${T} COMMAND ${TP})
-        set_property(TARGET ${TP} PROPERTY FOLDER "UnitTests")
-    endforeach()
-endif()
-
-if(INSTALL_LIB)
-    install(TARGETS ${TR_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR})
-    install(FILES ${${PROJECT_NAME}_PUBLIC_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${TR_NAME})
+    target_link_libraries(${TR_NAME} crypt32 shlwapi)
 endif()

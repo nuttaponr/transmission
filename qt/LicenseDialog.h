@@ -4,26 +4,22 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_LICENSE_DIALOG_H
-#define QTR_LICENSE_DIALOG_H
+#pragma once
 
 #include "BaseDialog.h"
-
+#include "Macros.h"
 #include "ui_LicenseDialog.h"
 
-class LicenseDialog: public BaseDialog
+class LicenseDialog : public BaseDialog
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(LicenseDialog)
 
-  public:
-    LicenseDialog (QWidget * parent = nullptr);
-    virtual ~LicenseDialog () {}
+public:
+    LicenseDialog(QWidget* parent = nullptr);
 
-  private:
-    Ui::LicenseDialog ui;
+private:
+    Ui::LicenseDialog ui_ = {};
 };
-
-#endif // QTR_LICENSE_DIALOG_H

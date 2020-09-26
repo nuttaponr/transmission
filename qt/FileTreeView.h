@@ -4,15 +4,14 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_FILE_TREE_VIEW_H
-#define QTR_FILE_TREE_VIEW_H
+#pragma once
 
 #include <QSet>
 #include <QTreeView>
 
+#include "Macros.h"
 #include "Torrent.h" // FileList
 
 class QAction;
@@ -22,67 +21,66 @@ class QSortFilterProxyModel;
 class FileTreeDelegate;
 class FileTreeModel;
 
-class FileTreeView: public QTreeView
+class FileTreeView : public QTreeView
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(FileTreeView)
 
-  public:
-    FileTreeView (QWidget * parent = nullptr, bool editable = true);
+public:
+    FileTreeView(QWidget* parent = nullptr, bool editable = true);
 
-    void clear ();
-    void update (const FileList& files, bool updateProperties = true);
+    void clear();
+    void update(FileList const& files, bool update_properties = true);
 
-    void setEditable (bool editable);
+    void setEditable(bool editable);
 
-  signals:
-    void priorityChanged (const QSet<int>& fileIndices, int priority);
-    void wantedChanged (const QSet<int>& fileIndices, bool wanted);
-    void pathEdited (const QString& oldpath, const QString& newname);
-    void openRequested (const QString& path);
+signals:
+    void priorityChanged(QSet<int> const& file_indices, int priority);
+    void wantedChanged(QSet<int> const& file_indices, bool wanted);
+    void pathEdited(QString const& old_path, QString const& new_name);
+    void openRequested(QString const& path);
 
-  protected:
+protected:
     // QWidget
-    virtual void resizeEvent (QResizeEvent * event);
-    virtual void keyPressEvent (QKeyEvent * event);
-    virtual void mouseDoubleClickEvent (QMouseEvent * event);
-    virtual void contextMenuEvent (QContextMenuEvent * event);
+    void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
     // QAbstractItemView
-    virtual bool edit (const QModelIndex& index, EditTrigger trigger, QEvent * event);
+    bool edit(QModelIndex const& index, EditTrigger trigger, QEvent* event) override;
 
-  private slots:
-    void onClicked (const QModelIndex& index);
+private slots:
+    void onClicked(QModelIndex const& index);
 
-    void checkSelectedItems ();
-    void uncheckSelectedItems ();
-    void onlyCheckSelectedItems ();
-    void setSelectedItemsPriority ();
-    bool openSelectedItem ();
-    void renameSelectedItem ();
+    void checkSelectedItems();
+    void uncheckSelectedItems();
+    void onlyCheckSelectedItems();
+    void setSelectedItemsPriority();
+    bool openSelectedItem();
+    void renameSelectedItem();
 
-    void refreshContextMenuActionsSensitivity ();
+    void refreshContextMenuActionsSensitivity();
 
-  private:
-    void initContextMenu ();
-    QModelIndexList selectedSourceRows (int column = 0) const;
+private:
+    void initContextMenu();
+    QModelIndexList selectedSourceRows(int column = 0) const;
 
-    static Qt::CheckState getCumulativeCheckState (const QModelIndexList& indices);
+    static Qt::CheckState getCumulativeCheckState(QModelIndexList const& indices);
 
-  private:
-    FileTreeModel * myModel;
-    QSortFilterProxyModel * myProxy;
-    FileTreeDelegate * myDelegate;
+private:
+    FileTreeModel* model_ = {};
+    QSortFilterProxyModel* proxy_ = {};
+    FileTreeDelegate* delegate_ = {};
 
-    QMenu * myContextMenu = nullptr;
-    QMenu * myPriorityMenu = nullptr;
-    QAction * myCheckSelectedAction = nullptr;
-    QAction * myUncheckSelectedAction = nullptr;
-    QAction * myOnlyCheckSelectedAction = nullptr;
-    QAction * myHighPriorityAction = nullptr;
-    QAction * myNormalPriorityAction = nullptr;
-    QAction * myLowPriorityAction = nullptr;
-    QAction * myOpenAction = nullptr;
-    QAction * myRenameAction = nullptr;
+    QMenu* context_menu_ = {};
+    QMenu* priority_menu_ = {};
+    QAction* check_selected_action_ = {};
+    QAction* uncheck_selected_action_ = {};
+    QAction* only_check_selected_action_ = {};
+    QAction* high_priority_action_ = {};
+    QAction* normal_priority_action_ = {};
+    QAction* low_priority_action_ = {};
+    QAction* open_action_ = {};
+    QAction* rename_action_ = {};
 };
-
-#endif // QTR_FILE_TREE_VIEW_H

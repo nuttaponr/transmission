@@ -4,30 +4,25 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include "TrackerModel.h"
 #include "TrackerModelFilter.h"
 
-TrackerModelFilter::TrackerModelFilter (QObject * parent):
-  QSortFilterProxyModel (parent),
-  myShowBackups (false)
+TrackerModelFilter::TrackerModelFilter(QObject* parent) :
+    QSortFilterProxyModel(parent)
 {
 }
 
-void
-TrackerModelFilter::setShowBackupTrackers (bool b)
+void TrackerModelFilter::setShowBackupTrackers(bool b)
 {
-  myShowBackups = b;
-  invalidateFilter ();
+    show_backups_ = b;
+    invalidateFilter();
 }
 
-bool
-TrackerModelFilter::filterAcceptsRow (int                 sourceRow,
-                                      const QModelIndex & sourceParent) const
+bool TrackerModelFilter::filterAcceptsRow(int source_row, QModelIndex const& source_parent) const
 {
-  QModelIndex index = sourceModel()->index(sourceRow, 0, sourceParent);
-  const TrackerInfo trackerInfo = index.data(TrackerModel::TrackerRole).value<TrackerInfo>();
-  return myShowBackups || !trackerInfo.st.isBackup;
+    QModelIndex index = sourceModel()->index(source_row, 0, source_parent);
+    auto const tracker_info = index.data(TrackerModel::TrackerRole).value<TrackerInfo>();
+    return show_backups_ || !tracker_info.st.is_backup;
 }

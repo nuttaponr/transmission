@@ -4,11 +4,9 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_FILE_TREE_ITEM_H
-#define QTR_FILE_TREE_ITEM_H
+#pragma once
 
 #include <cstdint>
 
@@ -19,71 +17,99 @@
 #include <QString>
 #include <QVariant>
 
+#include "Macros.h"
+
 class FileTreeItem
 {
-    Q_DECLARE_TR_FUNCTIONS (FileTreeItem)
-    Q_DISABLE_COPY (FileTreeItem)
+    Q_DECLARE_TR_FUNCTIONS(FileTreeItem)
+    TR_DISABLE_COPY_MOVE(FileTreeItem)
 
-  public:
+public:
+/* *INDENT-OFF* */
     enum
     {
-      LOW    = (1 << 0),
-      NORMAL = (1 << 1),
-      HIGH   = (1 << 2)
+        LOW = (1 << 0),
+        NORMAL = (1 << 1),
+        HIGH = (1 << 2)
     };
+/* *INDENT-ON* */
 
-  public:
-    FileTreeItem (const QString& name = QString (), int fileIndex = -1, uint64_t size = 0):
-      myName (name),
-      myFileIndex (fileIndex),
-      myTotalSize (size),
-      myParent (nullptr),
-      myPriority (0),
-      myIsWanted (false),
-      myHaveSize (0),
-      myFirstUnhashedRow (0) {}
+public:
+    FileTreeItem(QString const& name = QString(), int file_index = -1, uint64_t size = 0) :
+        name_(name),
+        total_size_(size),
+        file_index_(file_index)
+    {
+    }
+
     ~FileTreeItem();
 
-  public:
-    void appendChild (FileTreeItem * child);
-    FileTreeItem * child (const QString& filename);
-    FileTreeItem * child (int row) { return myChildren.at (row); }
-    int childCount () const { return myChildren.size (); }
-    FileTreeItem * parent () { return myParent; }
-    const FileTreeItem * parent () const { return myParent; }
-    int row () const;
-    const QString& name () const { return myName; }
-    QVariant data (int column, int role) const;
-    std::pair<int, int> update (const QString& name, bool want, int priority, uint64_t have, bool updateFields);
-    void setSubtreeWanted (bool, QSet<int>& fileIds);
-    void setSubtreePriority (int priority, QSet<int>& fileIds);
-    int fileIndex () const { return myFileIndex; }
-    uint64_t totalSize () const { return myTotalSize; }
-    QString path () const;
-    bool isComplete () const;
-    int priority () const;
-    int isSubtreeWanted () const;
+    void appendChild(FileTreeItem* child);
+    FileTreeItem* child(QString const& filename);
 
-  private:
-    QString priorityString () const;
-    QString sizeString () const;
-    void getSubtreeWantedSize (uint64_t& have, uint64_t& total) const;
-    double progress () const;
-    uint64_t size () const;
-    const QHash<QString,int>& getMyChildRows();
+    FileTreeItem* child(int row)
+    {
+        return children_.at(row);
+    }
 
-  private:
-    QString myName;
-    const int myFileIndex;
-    const uint64_t myTotalSize;
+    int childCount() const
+    {
+        return children_.size();
+    }
 
-    FileTreeItem * myParent;
-    QList<FileTreeItem*> myChildren;
-    QHash<QString,int> myChildRows;
-    int myPriority;
-    bool myIsWanted;
-    uint64_t myHaveSize;
-    size_t myFirstUnhashedRow;
+    FileTreeItem* parent()
+    {
+        return parent_;
+    }
+
+    FileTreeItem const* parent() const
+    {
+        return parent_;
+    }
+
+    int row() const;
+
+    QString const& name() const
+    {
+        return name_;
+    }
+
+    QVariant data(int column, int role) const;
+    std::pair<int, int> update(QString const& name, bool want, int priority, uint64_t have, bool update_fields);
+    void setSubtreeWanted(bool, QSet<int>& file_ids);
+    void setSubtreePriority(int priority, QSet<int>& file_ids);
+
+    int fileIndex() const
+    {
+        return file_index_;
+    }
+
+    uint64_t totalSize() const
+    {
+        return total_size_;
+    }
+
+    QString path() const;
+    bool isComplete() const;
+    int priority() const;
+    int isSubtreeWanted() const;
+
+private:
+    QString priorityString() const;
+    QString sizeString() const;
+    void getSubtreeWantedSize(uint64_t& have, uint64_t& total) const;
+    double progress() const;
+    uint64_t size() const;
+    QHash<QString, int> const& getMyChildRows();
+
+    FileTreeItem* parent_ = {};
+    QHash<QString, int> child_rows_;
+    QList<FileTreeItem*> children_;
+    QString name_;
+    uint64_t const total_size_ = {};
+    uint64_t have_size_ = {};
+    size_t first_unhashed_row_ = {};
+    int const file_index_ = {};
+    int priority_ = {};
+    bool is_wanted_ = {};
 };
-
-#endif // QTR_FILE_TREE_ITEM_H

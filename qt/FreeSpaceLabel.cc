@@ -1,10 +1,9 @@
 /*
- * This file Copyright (C) 2013-2015 Mnemosyne LLC
+ * This file Copyright (C) 2013-2016 Mnemosyne LLC
  *
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include <QDir>
@@ -14,92 +13,90 @@
 
 #include "Formatter.h"
 #include "FreeSpaceLabel.h"
+#include "RpcQueue.h"
 #include "Session.h"
+#include "VariantHelpers.h"
+
+using ::trqt::variant_helpers::dictAdd;
+using ::trqt::variant_helpers::dictFind;
 
 namespace
 {
-  static const int INTERVAL_MSEC = 15000;
+
+int const IntervalMSec = 15000;
+
+} // namespace
+
+FreeSpaceLabel::FreeSpaceLabel(QWidget* parent) :
+    QLabel(parent),
+    timer_(this)
+{
+    timer_.setSingleShot(true);
+    timer_.setInterval(IntervalMSec);
+
+    connect(&timer_, SIGNAL(timeout()), this, SLOT(onTimer()));
 }
 
-FreeSpaceLabel::FreeSpaceLabel (QWidget * parent):
-  QLabel (parent),
-  mySession (nullptr),
-  myTag (-1),
-  myTimer (this)
+void FreeSpaceLabel::setSession(Session& session)
 {
-  myTimer.setSingleShot (true);
-  myTimer.setInterval (INTERVAL_MSEC);
-
-  connect (&myTimer, SIGNAL (timeout ()), this, SLOT (onTimer ()));
-}
-
-void
-FreeSpaceLabel::setSession (Session& session)
-{
-  if (mySession == &session)
-    return;
-
-  if (mySession != nullptr)
-    disconnect (mySession, nullptr, this, nullptr);
-
-  mySession = &session;
-
-  connect (mySession, SIGNAL (executed (int64_t, QString, tr_variant *)),
-           this,      SLOT (onSessionExecuted (int64_t, QString, tr_variant *)));
-
-  onTimer ();
-}
-
-void
-FreeSpaceLabel::setPath (const QString& path)
-{
-  if (myPath != path)
+    if (session_ == &session)
     {
-      setText (tr("<i>Calculating Free Space...</i>"));
-      myPath = path;
-      onTimer ();
+        return;
+    }
+
+    session_ = &session;
+    onTimer();
+}
+
+void FreeSpaceLabel::setPath(QString const& path)
+{
+    if (path_ != path)
+    {
+        setText(tr("<i>Calculating Free Space...</i>"));
+        path_ = path;
+        onTimer();
     }
 }
 
-void
-FreeSpaceLabel::onTimer ()
+void FreeSpaceLabel::onTimer()
 {
-  myTimer.stop ();
+    timer_.stop();
 
-  if (mySession == nullptr || myPath.isEmpty ())
-    return;
+    if (session_ == nullptr || path_.isEmpty())
+    {
+        return;
+    }
 
-  tr_variant args;
-  tr_variantInitDict (&args, 1);
-  tr_variantDictAddStr (&args, TR_KEY_path, myPath.toUtf8 ().constData());
+    tr_variant args;
+    tr_variantInitDict(&args, 1);
+    dictAdd(&args, TR_KEY_path, path_);
 
-  myTag = mySession->getUniqueTag ();
-  mySession->exec ("free-space", &args, myTag);
-}
+    auto* q = new RpcQueue();
 
-void
-FreeSpaceLabel::onSessionExecuted (int64_t tag, const QString& result, tr_variant * arguments)
-{
-  Q_UNUSED (result);
+    q->add([this, &args]()
+        {
+            return session_->exec("free-space", &args);
+        });
 
-  if (tag != myTag)
-    return;
+    q->add([this](RpcResponse const& r)
+        {
+            // update the label
+            auto const bytes = dictFind<int64_t>(r.args.get(), TR_KEY_size_bytes);
+            if (bytes && *bytes > 1)
+            {
+                setText(tr("%1 free").arg(Formatter::get().sizeToString(*bytes)));
+            }
+            else
+            {
+                setText(QString());
+            }
 
-  QString str;
+            // update the tooltip
+            auto const path = dictFind<QString>(r.args.get(), TR_KEY_path);
+            setToolTip(QDir::toNativeSeparators(path ? *path : QString()));
 
-  // update the label
-  int64_t bytes = -1;
-  if (tr_variantDictFindInt (arguments, TR_KEY_size_bytes, &bytes) && bytes >= 0)
-    setText (tr("%1 free").arg(Formatter::sizeToString (bytes)));
-  else
-    setText (QString ());
+            timer_.start();
+        });
 
-  // update the tooltip
-  size_t len = 0;
-  const char * path = 0;
-  tr_variantDictFindStr (arguments, TR_KEY_path, &path, &len);
-  str = QString::fromUtf8 (path, len);
-  setToolTip (QDir::toNativeSeparators (str));
-
-  myTimer.start ();
+    q->run();
 }

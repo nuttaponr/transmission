@@ -4,16 +4,14 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_MAKE_DIALOG_H
-#define QTR_MAKE_DIALOG_H
+#pragma once
 
 #include <memory>
 
 #include "BaseDialog.h"
-
+#include "Macros.h"
 #include "ui_MakeDialog.h"
 
 class QAbstractButton;
@@ -22,35 +20,33 @@ class Session;
 
 extern "C"
 {
-  struct tr_metainfo_builder;
+struct tr_metainfo_builder;
 }
 
-class MakeDialog: public BaseDialog
+class MakeDialog : public BaseDialog
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(MakeDialog)
 
-  public:
-    MakeDialog (Session&, QWidget * parent = nullptr);
-    virtual ~MakeDialog ();
+public:
+    MakeDialog(Session&, QWidget* parent = nullptr);
 
-  protected:
+protected:
     // QWidget
-    virtual void dragEnterEvent (QDragEnterEvent *);
-    virtual void dropEvent (QDropEvent *);
+    void dragEnterEvent(QDragEnterEvent*) override;
+    void dropEvent(QDropEvent*) override;
 
-  private:
-    QString getSource () const;
+private:
+    QString getSource() const;
 
-  private slots:
-    void onSourceChanged ();
-    void makeTorrent ();
+private slots:
+    void onSourceChanged();
+    void makeTorrent();
 
-  private:
-    Session& mySession;
+private:
+    Session& session_;
 
-    Ui::MakeDialog ui;
+    Ui::MakeDialog ui_ = {};
 
-    std::unique_ptr<tr_metainfo_builder, void(*)(tr_metainfo_builder*)> myBuilder;
+    std::unique_ptr<tr_metainfo_builder, void (*)(tr_metainfo_builder*)> builder_;
 };
-
-#endif // QTR_MAKE_DIALOG_H

@@ -20,33 +20,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#pragma once
+
 #ifndef __TRANSMISSION__
- #error only libtransmission should #include this header.
+#error only libtransmission should #include this header.
 #endif
 
-#ifndef _TR_LPD_H
-#define _TR_LPD_H
-
-/* $Id$ */
-
-int  tr_lpdInit (tr_session*, tr_address*);
-void tr_lpdUninit (tr_session*);
-bool tr_lpdEnabled (const tr_session*);
-bool tr_lpdSendAnnounce (const tr_torrent*);
-
-/**
-* @defgroup Preproc Helper macros
-* @{
-*
-* @def lengthof
-* @brief returns the static length of a C array type
-* @note A lower case macro name is tolerable here since this definition of lengthof ()
-* is intimately related to sizeof semantics.
-* Meaningful return values are only guaranteed for true array types. */
-#define lengthof(arr)(sizeof (* (arr)) > 0 ? sizeof (arr) / sizeof (* (arr)) : 0)
+int tr_lpdInit(tr_session*, tr_address*);
+void tr_lpdUninit(tr_session*);
+bool tr_lpdEnabled(tr_session const*);
+bool tr_lpdSendAnnounce(tr_torrent const*);
 
 /**
 * @} */
-
-#endif /* _TR_LPD_H */
-

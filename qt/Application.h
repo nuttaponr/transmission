@@ -4,73 +4,81 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_APPLICATION_H
-#define QTR_APPLICATION_H
+#pragma once
+
+#include <unordered_set>
 
 #include <QApplication>
-#include <QSet>
 #include <QTimer>
 #include <QTranslator>
 
 #include "FaviconCache.h"
+#include "Macros.h"
+#include "Typedefs.h"
+#include "Utils.h" // std::hash<QString>
 
 class AddData;
 class Prefs;
 class Session;
+class Torrent;
 class TorrentModel;
 class MainWindow;
 class WatchDir;
 
-class Application: public QApplication
+class Application : public QApplication
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(Application)
 
-  public:
-    Application (int& argc, char ** argv);
-    virtual ~Application ();
+public:
+    Application(int& argc, char** argv);
+    ~Application() override;
 
-    void raise ();
-    bool notifyApp (const QString& title, const QString& body) const;
+    void raise();
+    bool notifyApp(QString const& title, QString const& body) const;
 
-    FaviconCache& faviconCache ();
+    QString const& intern(QString const& in) { return *interned_strings_.insert(in).first; }
+    FaviconCache& faviconCache();
 
-  public slots:
-    void addTorrent (const QString&);
-    void addTorrent (const AddData&);
+public slots:
+    void addTorrent(AddData const&);
 
-  private:
-    void maybeUpdateBlocklist ();
-    void loadTranslations ();
-    void quitLater ();
+private slots:
+    void consentGiven(int result);
+    void onSessionSourceChanged();
+    void onTorrentsAdded(torrent_ids_t const& torrents);
+    void onTorrentsCompleted(torrent_ids_t const& torrents);
+    void onTorrentsEdited(torrent_ids_t const& torrents);
+    void onTorrentsNeedInfo(torrent_ids_t const& torrents);
+    void refreshPref(int key);
+    void refreshTorrents();
 
-  private slots:
-    void consentGiven (int result);
-    void onSessionSourceChanged ();
-    void refreshPref (int key);
-    void refreshTorrents ();
-    void onTorrentsAdded (const QSet<int>& torrents);
-    void onTorrentCompleted (int);
-    void onNewTorrentChanged (int);
+private:
+    void maybeUpdateBlocklist();
+    void loadTranslations();
+    QStringList getNames(torrent_ids_t const& ids) const;
+    void quitLater();
 
-  private:
-    Prefs * myPrefs;
-    Session * mySession;
-    TorrentModel * myModel;
-    MainWindow * myWindow;
-    WatchDir * myWatchDir;
-    QTimer myModelTimer;
-    QTimer myStatsTimer;
-    QTimer mySessionTimer;
-    time_t myLastFullUpdateTime;
-    QTranslator myQtTranslator;
-    QTranslator myAppTranslator;
-    FaviconCache myFavicons;
+    Prefs* prefs_ = {};
+    Session* session_ = {};
+    TorrentModel* model_ = {};
+    MainWindow* window_ = {};
+    WatchDir* watch_dir_ = {};
+    QTimer model_timer_;
+    QTimer stats_timer_;
+    QTimer session_timer_;
+    time_t last_full_update_time_ = {};
+    QTranslator qt_translator_;
+    QTranslator app_translator_;
+    FaviconCache favicons_;
+
+    QString const config_name_;
+    QString const display_name_;
+
+    std::unordered_set<QString> interned_strings_;
 };
 
 #undef qApp
-#define qApp static_cast<Application*> (Application::instance ())
-
-#endif // QTR_APPLICATION_H
+#define qApp static_cast<Application*>(Application::instance())

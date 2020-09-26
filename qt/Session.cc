@@ -1,14 +1,18 @@
 /*
- * This file Copyright (C) 2009-2015 Mnemosyne LLC
+ * This file Copyright (C) 2009-2016 Mnemosyne LLC
  *
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
+#include "Session.h"
+
+#include <algorithm>
+#include <array>
 #include <cassert>
 #include <iostream>
+#include <string_view>
 
 #include <QApplication>
 #include <QByteArray>
@@ -22,251 +26,266 @@
 #include <QStyle>
 #include <QTextStream>
 
+#include <libtransmission/session-id.h>
 #include <libtransmission/transmission.h>
 #include <libtransmission/utils.h> // tr_free
 #include <libtransmission/variant.h>
 
 #include "AddData.h"
+#include "CustomVariantType.h"
 #include "Prefs.h"
-#include "Session.h"
+#include "RpcQueue.h"
 #include "SessionDialog.h"
 #include "Torrent.h"
 #include "Utils.h"
+#include "VariantHelpers.h"
 
-namespace
-{
-  enum
-  {
-    TAG_SOME_TORRENTS,
-    TAG_ALL_TORRENTS,
-    TAG_SESSION_STATS,
-    TAG_SESSION_INFO,
-    TAG_BLOCKLIST_UPDATE,
-    TAG_ADD_TORRENT,
-    TAG_PORT_TEST,
-    TAG_MAGNET_LINK,
-    TAG_RENAME_PATH,
-
-    FIRST_UNIQUE_TAG
-  };
-}
+using ::trqt::variant_helpers::dictAdd;
+using ::trqt::variant_helpers::dictFind;
+using ::trqt::variant_helpers::getValue;
+using ::trqt::variant_helpers::listAdd;
 
 /***
 ****
 ***/
 
-namespace
+void Session::sessionSet(tr_quark const key, QVariant const& value)
 {
-  typedef Torrent::KeyList KeyList;
-  const KeyList& getInfoKeys () { return Torrent::getInfoKeys (); }
-  const KeyList& getStatKeys () { return Torrent::getStatKeys (); }
-  const KeyList& getExtraStatKeys () { return Torrent::getExtraStatKeys (); }
+    tr_variant args;
+    tr_variantInitDict(&args, 1);
 
-  void
-  addList (tr_variant * list, const KeyList& keys)
-  {
-    tr_variantListReserve (list, keys.size ());
-    for (const tr_quark key: keys)
-      tr_variantListAddQuark (list, key);
-  }
-}
-
-/***
-****
-***/
-
-void
-FileAdded::executed (int64_t tag, const QString& result, tr_variant * arguments)
-{
-  if (tag != myTag)
-    return;
-
-  if (result == QLatin1String ("success"))
+    switch (value.type())
     {
-      tr_variant * dup;
-      const char * str;
-      if (tr_variantDictFindDict (arguments, TR_KEY_torrent_duplicate, &dup) &&
-          tr_variantDictFindStr (dup, TR_KEY_name, &str, NULL))
-        {
-          const QString myFilename = QFileInfo (myName).fileName ();
-          const QString name = QString::fromUtf8 (str);
-          QMessageBox::warning (qApp->activeWindow (),
-                                tr ("Add Torrent"),
-                                tr ("<p><b>Unable to add \"%1\".</b></p><p>It is a duplicate of \"%2\" which is already added.</p>").arg (myFilename).arg (name));
-        }
+    case QVariant::Bool:
+        dictAdd(&args, key, value.toBool());
+        break;
 
-      if (!myDelFile.isEmpty ())
-        {
-          QFile file (myDelFile);
-          file.setPermissions (QFile::ReadOwner | QFile::WriteOwner);
-          file.remove ();
-        }
-    }
-  else
-    {
-      QString text = result;
+    case QVariant::Int:
+        dictAdd(&args, key, value.toInt());
+        break;
 
-      for (int i=0, n=text.size (); i<n; ++i)
-        if (!i || text[i-1].isSpace ())
-          text[i] = text[i].toUpper ();
+    case QVariant::Double:
+        dictAdd(&args, key, value.toDouble());
+        break;
 
-      QMessageBox::warning (qApp->activeWindow (),
-                            tr ("Error Adding Torrent"),
-                            QString::fromLatin1 ("<p><b>%1</b></p><p>%2</p>").arg (text).arg (myName));
+    case QVariant::String:
+        dictAdd(&args, key, value.toString());
+        break;
+
+    default:
+        assert(false);
     }
 
-  deleteLater ();
+    exec("session-set", &args);
 }
 
-/***
-****
-***/
-
-void
-Session::sessionSet (const tr_quark key, const QVariant& value)
+void Session::portTest()
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 1);
-  switch (value.type ())
-    {
-      case QVariant::Bool:   tr_variantDictAddBool (&args, key, value.toBool ()); break;
-      case QVariant::Int:    tr_variantDictAddInt (&args, key, value.toInt ()); break;
-      case QVariant::Double: tr_variantDictAddReal (&args, key, value.toDouble ()); break;
-      case QVariant::String: tr_variantDictAddStr (&args, key, value.toString ().toUtf8 ().constData ()); break;
-      default:               assert ("unknown type");
-    }
+    auto* q = new RpcQueue();
 
-  exec ("session-set", &args);
-}
-
-void
-Session::portTest ()
-{
-  exec ("port-test", nullptr, TAG_PORT_TEST);
-}
-
-void
-Session::copyMagnetLinkToClipboard (int torrentId)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  tr_variantListAddInt (tr_variantDictAddList (&args, TR_KEY_ids, 1), torrentId);
-  tr_variantListAddStr (tr_variantDictAddList (&args, TR_KEY_fields, 1), "magnetLink");
-
-  exec (TR_KEY_torrent_get, &args, TAG_MAGNET_LINK);
-}
-
-void
-Session::updatePref (int key)
-{
-  if (myPrefs.isCore (key)) switch (key)
-    {
-      case Prefs::ALT_SPEED_LIMIT_DOWN:
-      case Prefs::ALT_SPEED_LIMIT_ENABLED:
-      case Prefs::ALT_SPEED_LIMIT_TIME_BEGIN:
-      case Prefs::ALT_SPEED_LIMIT_TIME_DAY:
-      case Prefs::ALT_SPEED_LIMIT_TIME_ENABLED:
-      case Prefs::ALT_SPEED_LIMIT_TIME_END:
-      case Prefs::ALT_SPEED_LIMIT_UP:
-      case Prefs::BLOCKLIST_DATE:
-      case Prefs::BLOCKLIST_ENABLED:
-      case Prefs::BLOCKLIST_URL:
-      case Prefs::DHT_ENABLED:
-      case Prefs::DOWNLOAD_QUEUE_ENABLED:
-      case Prefs::DOWNLOAD_QUEUE_SIZE:
-      case Prefs::DSPEED:
-      case Prefs::DSPEED_ENABLED:
-      case Prefs::IDLE_LIMIT:
-      case Prefs::IDLE_LIMIT_ENABLED:
-      case Prefs::INCOMPLETE_DIR:
-      case Prefs::INCOMPLETE_DIR_ENABLED:
-      case Prefs::LPD_ENABLED:
-      case Prefs::PEER_LIMIT_GLOBAL:
-      case Prefs::PEER_LIMIT_TORRENT:
-      case Prefs::PEER_PORT:
-      case Prefs::PEER_PORT_RANDOM_ON_START:
-      case Prefs::QUEUE_STALLED_MINUTES:
-      case Prefs::PEX_ENABLED:
-      case Prefs::PORT_FORWARDING:
-      case Prefs::RENAME_PARTIAL_FILES:
-      case Prefs::SCRIPT_TORRENT_DONE_ENABLED:
-      case Prefs::SCRIPT_TORRENT_DONE_FILENAME:
-      case Prefs::START:
-      case Prefs::TRASH_ORIGINAL:
-      case Prefs::USPEED:
-      case Prefs::USPEED_ENABLED:
-      case Prefs::UTP_ENABLED:
-        sessionSet (myPrefs.getKey (key), myPrefs.variant (key));
-        break;
-
-      case Prefs::DOWNLOAD_DIR:
-        sessionSet (myPrefs.getKey (key), myPrefs.variant (key));
-        /* this will change the 'freespace' argument, so refresh */
-        refreshSessionInfo ();
-        break;
-
-      case Prefs::RATIO:
-        sessionSet (TR_KEY_seedRatioLimit, myPrefs.variant (key));
-        break;
-      case Prefs::RATIO_ENABLED:
-        sessionSet (TR_KEY_seedRatioLimited, myPrefs.variant (key));
-        break;
-
-      case Prefs::ENCRYPTION:
+    q->add([this]()
         {
-          const int i = myPrefs.variant (key).toInt ();
-          switch (i)
+            return exec("port-test", nullptr);
+        });
+
+    q->add([this](RpcResponse const& r)
+        {
+            bool is_open = false;
+
+            if (r.success)
             {
-              case 0:
-                sessionSet (myPrefs.getKey (key), QLatin1String ("tolerated"));
-                break;
-              case 1:
-                sessionSet (myPrefs.getKey (key), QLatin1String ("preferred"));
-                break;
-              case 2:
-                sessionSet (myPrefs.getKey (key), QLatin1String ("required"));
+                auto const value = dictFind<bool>(r.args.get(), TR_KEY_port_is_open);
+                if (value)
+                {
+                    is_open = *value;
+                }
+            }
+
+            emit portTested(is_open);
+        });
+
+    q->run();
+}
+
+void Session::copyMagnetLinkToClipboard(int torrent_id)
+{
+    auto constexpr MagnetLinkKey = std::string_view { "magnetLink" };
+    auto constexpr Fields = std::array<std::string_view, 1>{ MagnetLinkKey };
+
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    dictAdd(&args, TR_KEY_ids, std::array<int, 1>{ torrent_id });
+    dictAdd(&args, TR_KEY_fields, Fields);
+
+    auto* q = new RpcQueue();
+
+    q->add([this, &args]()
+        {
+            return exec(TR_KEY_torrent_get, &args);
+        });
+
+    q->add([](RpcResponse const& r)
+        {
+            tr_variant* torrents;
+
+            if (!tr_variantDictFindList(r.args.get(), TR_KEY_torrents, &torrents))
+            {
+                return;
+            }
+
+            tr_variant* const child = tr_variantListChild(torrents, 0);
+            if (child != nullptr)
+            {
+                auto const link = dictFind<QString>(child, TR_KEY_magnetLink);
+                if (link)
+                {
+                    qApp->clipboard()->setText(*link);
+                }
+            }
+        });
+
+    q->run();
+}
+
+void Session::updatePref(int key)
+{
+    if (prefs_.isCore(key))
+    {
+        switch (key)
+        {
+        case Prefs::ALT_SPEED_LIMIT_DOWN:
+        case Prefs::ALT_SPEED_LIMIT_ENABLED:
+        case Prefs::ALT_SPEED_LIMIT_TIME_BEGIN:
+        case Prefs::ALT_SPEED_LIMIT_TIME_DAY:
+        case Prefs::ALT_SPEED_LIMIT_TIME_ENABLED:
+        case Prefs::ALT_SPEED_LIMIT_TIME_END:
+        case Prefs::ALT_SPEED_LIMIT_UP:
+        case Prefs::BLOCKLIST_DATE:
+        case Prefs::BLOCKLIST_ENABLED:
+        case Prefs::BLOCKLIST_URL:
+        case Prefs::DHT_ENABLED:
+        case Prefs::DOWNLOAD_QUEUE_ENABLED:
+        case Prefs::DOWNLOAD_QUEUE_SIZE:
+        case Prefs::DSPEED:
+        case Prefs::DSPEED_ENABLED:
+        case Prefs::IDLE_LIMIT:
+        case Prefs::IDLE_LIMIT_ENABLED:
+        case Prefs::INCOMPLETE_DIR:
+        case Prefs::INCOMPLETE_DIR_ENABLED:
+        case Prefs::LPD_ENABLED:
+        case Prefs::PEER_LIMIT_GLOBAL:
+        case Prefs::PEER_LIMIT_TORRENT:
+        case Prefs::PEER_PORT:
+        case Prefs::PEER_PORT_RANDOM_ON_START:
+        case Prefs::QUEUE_STALLED_MINUTES:
+        case Prefs::PEX_ENABLED:
+        case Prefs::PORT_FORWARDING:
+        case Prefs::RENAME_PARTIAL_FILES:
+        case Prefs::SCRIPT_TORRENT_DONE_ENABLED:
+        case Prefs::SCRIPT_TORRENT_DONE_FILENAME:
+        case Prefs::START:
+        case Prefs::TRASH_ORIGINAL:
+        case Prefs::USPEED:
+        case Prefs::USPEED_ENABLED:
+        case Prefs::UTP_ENABLED:
+            sessionSet(prefs_.getKey(key), prefs_.variant(key));
+            break;
+
+        case Prefs::DOWNLOAD_DIR:
+            sessionSet(prefs_.getKey(key), prefs_.variant(key));
+            /* this will change the 'freespace' argument, so refresh */
+            refreshSessionInfo();
+            break;
+
+        case Prefs::RATIO:
+            sessionSet(TR_KEY_seedRatioLimit, prefs_.variant(key));
+            break;
+
+        case Prefs::RATIO_ENABLED:
+            sessionSet(TR_KEY_seedRatioLimited, prefs_.variant(key));
+            break;
+
+        case Prefs::ENCRYPTION:
+            {
+                int const i = prefs_.variant(key).toInt();
+
+                switch (i)
+                {
+                case 0:
+                    sessionSet(prefs_.getKey(key), QStringLiteral("tolerated"));
+                    break;
+
+                case 1:
+                    sessionSet(prefs_.getKey(key), QStringLiteral("preferred"));
+                    break;
+
+                case 2:
+                    sessionSet(prefs_.getKey(key), QStringLiteral("required"));
+                    break;
+                }
+
                 break;
             }
-          break;
+
+        case Prefs::RPC_AUTH_REQUIRED:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCPasswordEnabled(session_, prefs_.getBool(key));
+            }
+
+            break;
+
+        case Prefs::RPC_ENABLED:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCEnabled(session_, prefs_.getBool(key));
+            }
+
+            break;
+
+        case Prefs::RPC_PASSWORD:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCPassword(session_, prefs_.getString(key).toUtf8().constData());
+            }
+
+            break;
+
+        case Prefs::RPC_PORT:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCPort(session_, static_cast<tr_port>(prefs_.getInt(key)));
+            }
+
+            break;
+
+        case Prefs::RPC_USERNAME:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCUsername(session_, prefs_.getString(key).toUtf8().constData());
+            }
+
+            break;
+
+        case Prefs::RPC_WHITELIST_ENABLED:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCWhitelistEnabled(session_, prefs_.getBool(key));
+            }
+
+            break;
+
+        case Prefs::RPC_WHITELIST:
+            if (session_ != nullptr)
+            {
+                tr_sessionSetRPCWhitelist(session_, prefs_.getString(key).toUtf8().constData());
+            }
+
+            break;
+
+        default:
+            std::cerr << "unhandled pref: " << key << std::endl;
         }
-
-      case Prefs::RPC_AUTH_REQUIRED:
-        if (mySession)
-          tr_sessionSetRPCPasswordEnabled (mySession, myPrefs.getBool (key));
-        break;
-
-      case Prefs::RPC_ENABLED:
-        if (mySession)
-          tr_sessionSetRPCEnabled (mySession, myPrefs.getBool (key));
-        break;
-
-      case Prefs::RPC_PASSWORD:
-        if (mySession)
-          tr_sessionSetRPCPassword (mySession, myPrefs.getString (key).toUtf8 ().constData ());
-        break;
-
-      case Prefs::RPC_PORT:
-        if (mySession)
-          tr_sessionSetRPCPort (mySession, myPrefs.getInt (key));
-        break;
-
-      case Prefs::RPC_USERNAME:
-        if (mySession)
-          tr_sessionSetRPCUsername (mySession, myPrefs.getString (key).toUtf8 ().constData ());
-        break;
-
-      case Prefs::RPC_WHITELIST_ENABLED:
-        if (mySession)
-          tr_sessionSetRPCWhitelistEnabled (mySession, myPrefs.getBool (key));
-        break;
-
-      case Prefs::RPC_WHITELIST:
-        if (mySession)
-          tr_sessionSetRPCWhitelist (mySession, myPrefs.getString (key).toUtf8 ().constData ());
-        break;
-
-      default:
-        std::cerr << "unhandled pref: " << key << std::endl;
     }
 }
 
@@ -274,696 +293,940 @@ Session::updatePref (int key)
 ****
 ***/
 
-Session::Session (const QString& configDir, Prefs& prefs):
-  myConfigDir (configDir),
-  myPrefs (prefs),
-  nextUniqueTag (FIRST_UNIQUE_TAG),
-  myBlocklistSize (-1),
-  mySession (0)
+Session::Session(QString config_dir, Prefs& prefs) :
+    config_dir_(std::move(config_dir)),
+    prefs_(prefs)
 {
-  myStats.ratio = TR_RATIO_NA;
-  myStats.uploadedBytes = 0;
-  myStats.downloadedBytes = 0;
-  myStats.filesAdded = 0;
-  myStats.sessionCount = 0;
-  myStats.secondsActive = 0;
-  myCumulativeStats = myStats;
+    stats_ = {};
+    stats_.ratio = TR_RATIO_NA;
+    cumulative_stats_ = stats_;
 
-  connect (&myPrefs, SIGNAL (changed (int)), this, SLOT (updatePref (int)));
+    connect(&prefs_, SIGNAL(changed(int)), this, SLOT(updatePref(int)));
+    connect(&rpc_, SIGNAL(httpAuthenticationRequired()), this, SIGNAL(httpAuthenticationRequired()));
+    connect(&rpc_, SIGNAL(dataReadProgress()), this, SIGNAL(dataReadProgress()));
+    connect(&rpc_, SIGNAL(dataSendProgress()), this, SIGNAL(dataSendProgress()));
+    connect(&rpc_, SIGNAL(networkResponse(QNetworkReply::NetworkError, QString)), this,
+        SIGNAL(networkResponse(QNetworkReply::NetworkError, QString)));
 
-  connect (&myRpc, SIGNAL (executed (int64_t, QString, tr_variant *)), this, SLOT (responseReceived (int64_t, QString, tr_variant *)));
-
-  connect (&myRpc, SIGNAL (httpAuthenticationRequired ()), this, SIGNAL (httpAuthenticationRequired ()));
-  connect (&myRpc, SIGNAL (dataReadProgress ()), this, SIGNAL (dataReadProgress ()));
-  connect (&myRpc, SIGNAL (dataSendProgress ()), this, SIGNAL (dataSendProgress ()));
-  connect (&myRpc, SIGNAL (error (QNetworkReply::NetworkError)), this, SIGNAL (error (QNetworkReply::NetworkError)));
-  connect (&myRpc, SIGNAL (errorMessage (QString)), this, SIGNAL (errorMessage (QString)));
+    duplicates_timer_.setSingleShot(true);
+    connect(&duplicates_timer_, &QTimer::timeout, this, &Session::onDuplicatesTimer);
 }
 
-Session::~Session ()
+Session::~Session()
 {
-    stop ();
+    stop();
 }
 
 /***
 ****
 ***/
 
-void
-Session::stop ()
+void Session::stop()
 {
-  myRpc.stop ();
+    rpc_.stop();
 
-  if (mySession)
+    if (session_ != nullptr)
     {
-      tr_sessionClose (mySession);
-      mySession = 0;
+        tr_sessionClose(session_);
+        session_ = nullptr;
     }
 }
 
-void
-Session::restart ()
+void Session::restart()
 {
-  stop ();
-  start ();
+    stop();
+    start();
 }
 
-void
-Session::start ()
+void Session::start()
 {
-  if (myPrefs.get<bool> (Prefs::SESSION_IS_REMOTE))
+    if (prefs_.get<bool>(Prefs::SESSION_IS_REMOTE))
     {
-      QUrl url;
-      url.setScheme (QLatin1String ("http"));
-      url.setHost (myPrefs.get<QString> (Prefs::SESSION_REMOTE_HOST));
-      url.setPort (myPrefs.get<int> (Prefs::SESSION_REMOTE_PORT));
-      url.setPath (QLatin1String ("/transmission/rpc"));
-      if (myPrefs.get<bool> (Prefs::SESSION_REMOTE_AUTH))
+        QUrl url;
+        url.setScheme(QStringLiteral("http"));
+        url.setHost(prefs_.get<QString>(Prefs::SESSION_REMOTE_HOST));
+        url.setPort(prefs_.get<int>(Prefs::SESSION_REMOTE_PORT));
+        url.setPath(QStringLiteral("/transmission/rpc"));
+
+        if (prefs_.get<bool>(Prefs::SESSION_REMOTE_AUTH))
         {
-          url.setUserName (myPrefs.get<QString> (Prefs::SESSION_REMOTE_USERNAME));
-          url.setPassword (myPrefs.get<QString> (Prefs::SESSION_REMOTE_PASSWORD));
+            url.setUserName(prefs_.get<QString>(Prefs::SESSION_REMOTE_USERNAME));
+            url.setPassword(prefs_.get<QString>(Prefs::SESSION_REMOTE_PASSWORD));
         }
 
-      myRpc.start (url);
+        rpc_.start(url);
     }
-  else
+    else
     {
-      tr_variant settings;
-      tr_variantInitDict (&settings, 0);
-      tr_sessionLoadSettings (&settings, myConfigDir.toUtf8 ().constData (), "qt");
-      mySession = tr_sessionInit (myConfigDir.toUtf8 ().constData (), true, &settings);
-      tr_variantFree (&settings);
+        tr_variant settings;
+        tr_variantInitDict(&settings, 0);
+        tr_sessionLoadSettings(&settings, config_dir_.toUtf8().constData(), "qt");
+        session_ = tr_sessionInit(config_dir_.toUtf8().constData(), true, &settings);
+        tr_variantFree(&settings);
 
-      myRpc.start (mySession);
+        rpc_.start(session_);
 
-      tr_ctor * ctor = tr_ctorNew (mySession);
-      int torrentCount;
-      tr_torrent ** torrents = tr_sessionLoadTorrents (mySession, ctor, &torrentCount);
-      tr_free (torrents);
-      tr_ctorFree (ctor);
+        tr_ctor* ctor = tr_ctorNew(session_);
+        int torrent_count;
+        tr_torrent** torrents = tr_sessionLoadTorrents(session_, ctor, &torrent_count);
+        tr_free(torrents);
+        tr_ctorFree(ctor);
     }
 
-  emit sourceChanged ();
+    emit sourceChanged();
 }
 
-bool
-Session::isServer () const
+bool Session::isServer() const
 {
-  return mySession != 0;
+    return session_ != nullptr;
 }
 
-bool
-Session::isLocal () const
+bool Session::isLocal() const
 {
-  return myRpc.isLocal ();
+    if (!session_id_.isEmpty())
+    {
+        return is_definitely_local_session_;
+    }
+
+    return rpc_.isLocal();
 }
 
 /***
 ****
 ***/
 
-namespace
+void Session::addOptionalIds(tr_variant* args, torrent_ids_t const& ids)
 {
-  void
-  addOptionalIds (tr_variant * args, const QSet<int>& ids)
-  {
-    if (!ids.isEmpty ())
-      {
-        tr_variant * idList (tr_variantDictAddList (args, TR_KEY_ids, ids.size ()));
-        for (const int i: ids)
-          tr_variantListAddInt (idList, i);
-      }
-  }
-}
+    auto constexpr RecentlyActiveKey = std::string_view { "recently-active" };
 
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, double value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  tr_variantDictAddReal (&args, key, value);
-  addOptionalIds (&args, ids);
-
-  exec (TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, int value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  tr_variantDictAddInt (&args, key, value);
-  addOptionalIds (&args, ids);
-
-  exec (TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, bool value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  tr_variantDictAddBool (&args, key, value);
-  addOptionalIds (&args, ids);
-
-  exec (TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, const QStringList& value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  addOptionalIds (&args, ids);
-  tr_variant * list (tr_variantDictAddList (&args, key, value.size ()));
-  for (const QString& str: value)
-    tr_variantListAddStr (list, str.toUtf8 ().constData ());
-
-  exec(TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, const QList<int>& value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  addOptionalIds (&args, ids);
-  tr_variant * list (tr_variantDictAddList (&args, key, value.size ()));
-  for (const int i: value)
-    tr_variantListAddInt (list, i);
-
-  exec (TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSet (const QSet<int>& ids, const tr_quark key, const QPair<int,QString>& value)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  addOptionalIds (&args, ids);
-  tr_variant * list (tr_variantDictAddList (&args, key, 2));
-  tr_variantListAddInt (list, value.first);
-  tr_variantListAddStr (list, value.second.toUtf8 ().constData ());
-
-  exec (TR_KEY_torrent_set, &args);
-}
-
-void
-Session::torrentSetLocation (const QSet<int>& ids, const QString& location, bool doMove)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 3);
-  addOptionalIds (&args, ids);
-  tr_variantDictAddStr (&args, TR_KEY_location, location.toUtf8 ().constData ());
-  tr_variantDictAddBool (&args, TR_KEY_move, doMove);
-
-  exec (TR_KEY_torrent_set_location, &args);
-}
-
-void
-Session::torrentRenamePath (const QSet<int>& ids, const QString& oldpath, const QString& newname)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  addOptionalIds (&args, ids);
-  tr_variantDictAddStr (&args, TR_KEY_path, oldpath.toUtf8 ().constData ());
-  tr_variantDictAddStr (&args, TR_KEY_name, newname.toUtf8 ().constData ());
-
-  exec ("torrent-rename-path", &args, TAG_RENAME_PATH);
-}
-
-void
-Session::refreshTorrents (const QSet<int>& ids)
-{
-  if (ids.empty ())
+    if (&ids == &RecentlyActiveIDs)
     {
-      refreshAllTorrents ();
+        dictAdd(args, TR_KEY_ids, RecentlyActiveKey);
     }
-  else
+    else if (!ids.empty())
     {
-      tr_variant args;
-      tr_variantInitDict (&args, 2);
-      addList (tr_variantDictAddList (&args, TR_KEY_fields, 0), getStatKeys ());
-      addOptionalIds (&args, ids);
-
-      exec (TR_KEY_torrent_get, &args, TAG_SOME_TORRENTS);
+        dictAdd(args, TR_KEY_ids, ids);
     }
 }
 
-void
-Session::refreshExtraStats (const QSet<int>& ids)
+Session::Tag Session::torrentSetImpl(tr_variant* args)
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 3);
-  addOptionalIds (&args, ids);
-  addList (tr_variantDictAddList (&args, TR_KEY_fields, 0), getStatKeys () + getExtraStatKeys ());
+    auto* const q = new RpcQueue();
+    auto const tag = q->tag();
 
-  exec (TR_KEY_torrent_get, &args, TAG_SOME_TORRENTS);
+    q->add([this, args]()
+        {
+            return rpc_.exec(TR_KEY_torrent_set, args);
+        });
+    q->add([this, tag]()
+        {
+            emit sessionCalled(tag);
+        });
+    q->setTolerateErrors();
+    q->run();
+
+    return tag;
 }
 
-void
-Session::sendTorrentRequest (const char * request, const QSet<int>& ids)
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, double value)
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 1);
-  addOptionalIds (&args, ids);
-
-  exec (request, &args);
-
-  refreshTorrents (ids);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, key, value);
+    return torrentSetImpl(&args);
 }
 
-void Session::pauseTorrents    (const QSet<int>& ids) { sendTorrentRequest ("torrent-stop",      ids); }
-void Session::startTorrents    (const QSet<int>& ids) { sendTorrentRequest ("torrent-start",     ids); }
-void Session::startTorrentsNow (const QSet<int>& ids) { sendTorrentRequest ("torrent-start-now", ids); }
-void Session::queueMoveTop     (const QSet<int>& ids) { sendTorrentRequest ("queue-move-top",    ids); }
-void Session::queueMoveUp      (const QSet<int>& ids) { sendTorrentRequest ("queue-move-up",     ids); }
-void Session::queueMoveDown    (const QSet<int>& ids) { sendTorrentRequest ("queue-move-down",   ids); }
-void Session::queueMoveBottom  (const QSet<int>& ids) { sendTorrentRequest ("queue-move-bottom", ids); }
-
-void
-Session::refreshActiveTorrents ()
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, int value)
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  tr_variantDictAddStr (&args, TR_KEY_ids, "recently-active");
-  addList (tr_variantDictAddList (&args, TR_KEY_fields, 0), getStatKeys ());
-
-  exec (TR_KEY_torrent_get, &args, TAG_SOME_TORRENTS);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, key, value);
+    return torrentSetImpl(&args);
 }
 
-void
-Session::refreshAllTorrents ()
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, bool value)
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 1);
-  addList (tr_variantDictAddList (&args, TR_KEY_fields, 0), getStatKeys ());
-
-  exec (TR_KEY_torrent_get, &args, TAG_ALL_TORRENTS);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, key, value);
+    return torrentSetImpl(&args);
 }
 
-void
-Session::initTorrents (const QSet<int>& ids)
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, QStringList const& value)
 {
-  tr_variant args;
-  tr_variantInitDict (&args, 2);
-  addOptionalIds (&args, ids);
-  addList (tr_variantDictAddList (&args, TR_KEY_fields, 0), getStatKeys ()+getInfoKeys ());
-
-  exec ("torrent-get", &args, ids.isEmpty () ? TAG_ALL_TORRENTS : TAG_SOME_TORRENTS);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, key, value);
+    return torrentSetImpl(&args);
 }
 
-void
-Session::refreshSessionStats ()
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, QList<int> const& value)
 {
-  exec ("session-stats", nullptr, TAG_SESSION_STATS);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, key, value);
+    return torrentSetImpl(&args);
 }
 
-void
-Session::refreshSessionInfo ()
+Session::Tag Session::torrentSet(torrent_ids_t const& ids, tr_quark const key, QPair<int, QString> const& value)
 {
-  exec ("session-get", nullptr, TAG_SESSION_INFO);
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    tr_variant* list(tr_variantDictAddList(&args, key, 2));
+    listAdd(list, value.first);
+    listAdd(list, value.second);
+    return torrentSetImpl(&args);
 }
 
-void
-Session::updateBlocklist ()
+void Session::torrentSetLocation(torrent_ids_t const& ids, QString const& location, bool do_move)
 {
-  exec ("blocklist-update", nullptr, TAG_BLOCKLIST_UPDATE);
+    tr_variant args;
+    tr_variantInitDict(&args, 3);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, TR_KEY_location, location);
+    dictAdd(&args, TR_KEY_move, do_move);
+
+    exec(TR_KEY_torrent_set_location, &args);
+}
+
+void Session::torrentRenamePath(torrent_ids_t const& ids, QString const& oldpath, QString const& newname)
+{
+    tr_variant args;
+    tr_variantInitDict(&args, 2);
+    addOptionalIds(&args, ids);
+    dictAdd(&args, TR_KEY_path, oldpath);
+    dictAdd(&args, TR_KEY_name, newname);
+
+    auto* q = new RpcQueue();
+
+    q->add([this, &args]()
+        {
+            return exec("torrent-rename-path", &args);
+        },
+        [](RpcResponse const& r)
+        {
+            auto str = dictFind<QString>(r.args.get(), TR_KEY_path);
+            auto const path = str ? *str : QStringLiteral("(unknown)");
+            str = dictFind<QString>(r.args.get(), TR_KEY_name);
+            auto const name = str ? *str : QStringLiteral("(unknown)");
+
+            auto* d = new QMessageBox(QMessageBox::Information, tr("Error Renaming Path"),
+                tr(R"(<p><b>Unable to rename "%1" as "%2": %3.</b></p><p>Please correct the errors and try again.</p>)").
+                    arg(path).arg(name).arg(r.result), QMessageBox::Close,
+                qApp->activeWindow());
+            d->connect(d, &QMessageBox::rejected, d, &QMessageBox::deleteLater);
+            d->show();
+        });
+
+    q->add([this, ids](RpcResponse const& /*r*/)
+        {
+            refreshTorrents(ids, TorrentProperties::Rename);
+        });
+
+    q->run();
+}
+
+std::vector<std::string_view> const& Session::getKeyNames(TorrentProperties props)
+{
+    std::vector<std::string_view>& names = names_[props];
+
+    if (names.empty())
+    {
+        // unchanging fields needed by the main window
+        static auto constexpr MainInfoKeys = std::array<tr_quark, 6>{
+            TR_KEY_addedDate,
+            TR_KEY_downloadDir,
+            TR_KEY_hashString,
+            TR_KEY_name,
+            TR_KEY_totalSize,
+            TR_KEY_trackers,
+        };
+
+        // changing fields needed by the main window
+        static auto constexpr MainStatKeys = std::array<tr_quark, 25>{
+            TR_KEY_downloadedEver,
+            TR_KEY_editDate,
+            TR_KEY_error,
+            TR_KEY_errorString,
+            TR_KEY_eta,
+            TR_KEY_haveUnchecked,
+            TR_KEY_haveValid,
+            TR_KEY_isFinished,
+            TR_KEY_leftUntilDone,
+            TR_KEY_manualAnnounceTime,
+            TR_KEY_metadataPercentComplete,
+            TR_KEY_peersConnected,
+            TR_KEY_peersGettingFromUs,
+            TR_KEY_peersSendingToUs,
+            TR_KEY_percentDone,
+            TR_KEY_queuePosition,
+            TR_KEY_rateDownload,
+            TR_KEY_rateUpload,
+            TR_KEY_recheckProgress,
+            TR_KEY_seedRatioLimit,
+            TR_KEY_seedRatioMode,
+            TR_KEY_sizeWhenDone,
+            TR_KEY_status,
+            TR_KEY_uploadedEver,
+            TR_KEY_webseedsSendingToUs
+        };
+
+        // unchanging fields needed by the details dialog
+        static auto constexpr DetailInfoKeys = std::array<tr_quark, 8>{
+            TR_KEY_comment,
+            TR_KEY_creator,
+            TR_KEY_dateCreated,
+            TR_KEY_files,
+            TR_KEY_isPrivate,
+            TR_KEY_pieceCount,
+            TR_KEY_pieceSize,
+            TR_KEY_trackers
+        };
+
+        // changing fields needed by the details dialog
+        static auto constexpr DetailStatKeys = std::array<tr_quark, 17>{
+            TR_KEY_activityDate,
+            TR_KEY_bandwidthPriority,
+            TR_KEY_corruptEver,
+            TR_KEY_desiredAvailable,
+            TR_KEY_downloadedEver,
+            TR_KEY_downloadLimit,
+            TR_KEY_downloadLimited,
+            TR_KEY_fileStats,
+            TR_KEY_honorsSessionLimits,
+            TR_KEY_peer_limit,
+            TR_KEY_peers,
+            TR_KEY_seedIdleLimit,
+            TR_KEY_seedIdleMode,
+            TR_KEY_startDate,
+            TR_KEY_trackerStats,
+            TR_KEY_uploadLimit,
+            TR_KEY_uploadLimited
+        };
+
+        // keys needed after renaming a torrent
+        static auto constexpr RenameKeys = std::array<tr_quark, 3>{
+            TR_KEY_fileStats,
+            TR_KEY_files,
+            TR_KEY_name
+        };
+
+        auto const append = [&names](tr_quark key)
+            {
+                size_t len = {};
+                char const* str = tr_quark_get_string(key, &len);
+                names.emplace_back(str, len);
+            };
+
+        switch (props)
+        {
+        case TorrentProperties::DetailInfo:
+            std::for_each(DetailInfoKeys.begin(), DetailInfoKeys.end(), append);
+            break;
+
+        case TorrentProperties::DetailStat:
+            std::for_each(DetailStatKeys.begin(), DetailStatKeys.end(), append);
+            break;
+
+        case TorrentProperties::MainAll:
+            std::for_each(MainInfoKeys.begin(), MainInfoKeys.end(), append);
+            std::for_each(MainStatKeys.begin(), MainStatKeys.end(), append);
+            break;
+
+        case TorrentProperties::MainInfo:
+            std::for_each(MainInfoKeys.begin(), MainInfoKeys.end(), append);
+            break;
+
+        case TorrentProperties::MainStats:
+            std::for_each(MainStatKeys.begin(), MainStatKeys.end(), append);
+            break;
+
+        case TorrentProperties::Rename:
+            std::for_each(RenameKeys.begin(), RenameKeys.end(), append);
+            break;
+        }
+
+        // must be in every torrent req
+        append(TR_KEY_id);
+
+        // sort and remove dupes
+        std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
+    }
+
+    return names;
+}
+
+void Session::refreshTorrents(torrent_ids_t const& ids, TorrentProperties props)
+{
+    auto constexpr Table = std::string_view{ "table" };
+
+    tr_variant args;
+    tr_variantInitDict(&args, 3);
+    dictAdd(&args, TR_KEY_format, Table);
+    dictAdd(&args, TR_KEY_fields, getKeyNames(props));
+    addOptionalIds(&args, ids);
+
+    auto* q = new RpcQueue();
+
+    q->add([this, &args]()
+        {
+            return exec(TR_KEY_torrent_get, &args);
+        });
+
+    bool const all_torrents = ids.empty();
+
+    q->add([this, all_torrents](RpcResponse const& r)
+        {
+            tr_variant* torrents;
+
+            if (tr_variantDictFindList(r.args.get(), TR_KEY_torrents, &torrents))
+            {
+                emit torrentsUpdated(torrents, all_torrents);
+            }
+
+            if (tr_variantDictFindList(r.args.get(), TR_KEY_removed, &torrents))
+            {
+                emit torrentsRemoved(torrents);
+            }
+        });
+
+    q->run();
+}
+
+void Session::refreshDetailInfo(torrent_ids_t const& ids)
+{
+    refreshTorrents(ids, TorrentProperties::DetailInfo);
+}
+
+void Session::refreshExtraStats(torrent_ids_t const& ids)
+{
+    refreshTorrents(ids, TorrentProperties::DetailStat);
+}
+
+void Session::sendTorrentRequest(std::string_view request, torrent_ids_t const& ids)
+{
+    tr_variant args;
+    tr_variantInitDict(&args, 1);
+    addOptionalIds(&args, ids);
+
+    auto* q = new RpcQueue();
+
+    q->add([this, request, &args]()
+        {
+            return exec(request, &args);
+        });
+
+    q->add([this, ids]()
+        {
+            refreshTorrents(ids, TorrentProperties::MainStats);
+        });
+
+    q->run();
+}
+
+void Session::pauseTorrents(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("torrent-stop", ids);
+}
+
+void Session::startTorrents(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("torrent-start", ids);
+}
+
+void Session::startTorrentsNow(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("torrent-start-now", ids);
+}
+
+void Session::queueMoveTop(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("queue-move-top", ids);
+}
+
+void Session::queueMoveUp(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("queue-move-up", ids);
+}
+
+void Session::queueMoveDown(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("queue-move-down", ids);
+}
+
+void Session::queueMoveBottom(torrent_ids_t const& ids)
+{
+    sendTorrentRequest("queue-move-bottom", ids);
+}
+
+void Session::refreshActiveTorrents()
+{
+    // If this object is passed as "ids" (compared by address), then recently active torrents are queried.
+    refreshTorrents(RecentlyActiveIDs, TorrentProperties::MainStats);
+}
+
+void Session::refreshAllTorrents()
+{
+    // if an empty ids object is used, all torrents are queried.
+    torrent_ids_t const ids = {};
+    refreshTorrents(ids, TorrentProperties::MainStats);
+}
+
+void Session::initTorrents(torrent_ids_t const& ids)
+{
+    refreshTorrents(ids, TorrentProperties::MainAll);
+}
+
+void Session::refreshSessionStats()
+{
+    auto* q = new RpcQueue();
+
+    q->add([this]()
+        {
+            return exec("session-stats", nullptr);
+        });
+
+    q->add([this](RpcResponse const& r)
+        {
+            updateStats(r.args.get());
+        });
+
+    q->run();
+}
+
+void Session::refreshSessionInfo()
+{
+    auto* q = new RpcQueue();
+
+    q->add([this]()
+        {
+            return exec("session-get", nullptr);
+        });
+
+    q->add([this](RpcResponse const& r)
+        {
+            updateInfo(r.args.get());
+        });
+
+    q->run();
+}
+
+void Session::updateBlocklist()
+{
+    auto* q = new RpcQueue();
+
+    q->add([this]()
+        {
+            return exec("blocklist-update", nullptr);
+        });
+
+    q->add([this](RpcResponse const& r)
+        {
+            auto const size = dictFind<int>(r.args.get(), TR_KEY_blocklist_size);
+            if (size)
+            {
+                setBlocklistSize(*size);
+            }
+        });
+
+    q->run();
 }
 
 /***
 ****
 ***/
 
-void
-Session::exec (tr_quark method, tr_variant * args, int64_t tag)
+RpcResponseFuture Session::exec(tr_quark method, tr_variant* args)
 {
-  myRpc.exec (method, args, tag);
+    return rpc_.exec(method, args);
 }
 
-void
-Session::exec (const char* method, tr_variant * args, int64_t tag)
+RpcResponseFuture Session::exec(std::string_view method, tr_variant* args)
 {
-  myRpc.exec (method, args, tag);
+    return rpc_.exec(method, args);
 }
 
-void
-Session::responseReceived (int64_t tag, const QString& result, tr_variant * args)
+void Session::updateStats(tr_variant* d, tr_session_stats* stats)
 {
-  emit executed (tag, result, args);
-
-  if (tag < 0)
-    return;
-
-  switch (tag)
+    auto value = dictFind<uint64_t>(d, TR_KEY_uploadedBytes);
+    if (value)
     {
-      case TAG_SOME_TORRENTS:
-      case TAG_ALL_TORRENTS:
-        if (args != nullptr)
-          {
-            tr_variant * torrents;
-            if (tr_variantDictFindList (args, TR_KEY_torrents, &torrents))
-                emit torrentsUpdated (torrents, tag==TAG_ALL_TORRENTS);
-            if (tr_variantDictFindList (args, TR_KEY_removed, &torrents))
-                emit torrentsRemoved (torrents);
-          }
-        break;
-
-      case TAG_SESSION_STATS:
-        if (args != nullptr)
-          updateStats (args);
-        break;
-
-      case TAG_SESSION_INFO:
-        if (args != nullptr)
-          updateInfo (args);
-        break;
-
-      case TAG_BLOCKLIST_UPDATE:
-        {
-          int64_t intVal = 0;
-          if (args != nullptr)
-            {
-              if (tr_variantDictFindInt (args, TR_KEY_blocklist_size, &intVal))
-                setBlocklistSize (intVal);
-            }
-          break;
-        }
-
-      case TAG_RENAME_PATH:
-        {
-          int64_t id = 0;
-          if (result != QLatin1String ("success"))
-            {
-              const char * path = "";
-              const char * name = "";
-              tr_variantDictFindStr (args, TR_KEY_path, &path, 0);
-              tr_variantDictFindStr (args, TR_KEY_name, &name, 0);
-              const QString title = tr ("Error Renaming Path");
-              const QString text = tr ("<p><b>Unable to rename \"%1\" as \"%2\": %3.</b></p> <p>Please correct the errors and try again.</p>").arg (QString::fromUtf8 (path)).arg (QString::fromUtf8 (name)).arg (result);
-              QMessageBox * d = new QMessageBox (QMessageBox::Information, title, text,
-                                                 QMessageBox::Close,
-                                                 qApp->activeWindow ());
-              connect (d, SIGNAL (rejected ()), d, SLOT (deleteLater ()));
-              d->show ();
-            }
-          else if (tr_variantDictFindInt (args, TR_KEY_id, &id) && id)
-            {
-              tr_variant args;
-              tr_variantInitDict (&args, 2);
-              tr_variantDictAddInt (&args, TR_KEY_ids, id);
-              addList (tr_variantDictAddList (&args, TR_KEY_fields, 0),
-                       KeyList () << TR_KEY_fileStats << TR_KEY_files << TR_KEY_id << TR_KEY_name);
-              exec ("torrent-get", &args, TAG_SOME_TORRENTS);
-            }
-
-          break;
-      }
-
-      case TAG_PORT_TEST:
-        {
-          bool isOpen;
-          if (args == nullptr ||
-              !tr_variantDictFindBool (args, TR_KEY_port_is_open, &isOpen))
-            isOpen = false;
-          emit portTested (isOpen);
-          break;
-        }
-
-      case TAG_MAGNET_LINK:
-        {
-          tr_variant * torrents;
-          tr_variant * child;
-          const char * str;
-          if (args != nullptr
-              && tr_variantDictFindList (args, TR_KEY_torrents, &torrents)
-              && ( (child = tr_variantListChild (torrents, 0)))
-              && tr_variantDictFindStr (child, TR_KEY_magnetLink, &str, NULL))
-            qApp->clipboard ()->setText (QString::fromUtf8 (str));
-          break;
-        }
-
-      case TAG_ADD_TORRENT:
-        {
-          const char * str = "";
-          if (result != QLatin1String ("success"))
-            {
-              QMessageBox * d = new QMessageBox (QMessageBox::Information,
-                                                 tr ("Add Torrent"),
-                                                 QString::fromUtf8 (str),
-                                                 QMessageBox::Close,
-                                                 qApp->activeWindow ());
-              connect (d, SIGNAL (rejected ()), d, SLOT (deleteLater ()));
-              d->show ();
-            }
-          break;
-        }
+        stats->uploadedBytes = *value;
     }
-}
 
-void
-Session::updateStats (tr_variant * d, tr_session_stats * stats)
-{
-  int64_t i;
-
-  if (tr_variantDictFindInt (d, TR_KEY_uploadedBytes, &i))
-    stats->uploadedBytes = i;
-  if (tr_variantDictFindInt (d, TR_KEY_downloadedBytes, &i))
-    stats->downloadedBytes = i;
-  if (tr_variantDictFindInt (d, TR_KEY_filesAdded, &i))
-    stats->filesAdded = i;
-  if (tr_variantDictFindInt (d, TR_KEY_sessionCount, &i))
-    stats->sessionCount = i;
-  if (tr_variantDictFindInt (d, TR_KEY_secondsActive, &i))
-    stats->secondsActive = i;
-
-  stats->ratio = tr_getRatio (stats->uploadedBytes, stats->downloadedBytes);
-}
-
-void
-Session::updateStats (tr_variant * d)
-{
-  tr_variant * c;
-
-  if (tr_variantDictFindDict (d, TR_KEY_current_stats, &c))
-    updateStats (c, &myStats);
-
-  if (tr_variantDictFindDict (d, TR_KEY_cumulative_stats, &c))
-    updateStats (c, &myCumulativeStats);
-
-  emit statsUpdated ();
-}
-
-void
-Session::updateInfo (tr_variant * d)
-{
-  int64_t i;
-  const char * str;
-
-  disconnect (&myPrefs, SIGNAL (changed (int)), this, SLOT (updatePref (int)));
-
-  for (int i=Prefs::FIRST_CORE_PREF; i<=Prefs::LAST_CORE_PREF; ++i)
+    if ((value = dictFind<uint64_t>(d, TR_KEY_downloadedBytes)))
     {
-      const tr_variant * b (tr_variantDictFind (d, myPrefs.getKey (i)));
+        stats->downloadedBytes = *value;
+    }
 
-      if (!b)
-        continue;
+    if ((value = dictFind<uint64_t>(d, TR_KEY_filesAdded)))
+    {
+        stats->filesAdded = *value;
+    }
 
-      if (i == Prefs::ENCRYPTION)
+    if ((value = dictFind<uint64_t>(d, TR_KEY_sessionCount)))
+    {
+        stats->sessionCount = *value;
+    }
+
+    if ((value = dictFind<uint64_t>(d, TR_KEY_secondsActive)))
+    {
+        stats->secondsActive = *value;
+    }
+
+    stats->ratio = static_cast<float>(tr_getRatio(stats->uploadedBytes, stats->downloadedBytes));
+}
+
+void Session::updateStats(tr_variant* d)
+{
+    tr_variant* c;
+
+    if (tr_variantDictFindDict(d, TR_KEY_current_stats, &c))
+    {
+        updateStats(c, &stats_);
+    }
+
+    if (tr_variantDictFindDict(d, TR_KEY_cumulative_stats, &c))
+    {
+        updateStats(c, &cumulative_stats_);
+    }
+
+    emit statsUpdated();
+}
+
+void Session::updateInfo(tr_variant* d)
+{
+    disconnect(&prefs_, SIGNAL(changed(int)), this, SLOT(updatePref(int)));
+
+    for (int i = Prefs::FIRST_CORE_PREF; i <= Prefs::LAST_CORE_PREF; ++i)
+    {
+        tr_variant const* b(tr_variantDictFind(d, prefs_.getKey(i)));
+
+        if (b == nullptr)
         {
-          const char * val;
-          if (tr_variantGetStr (b, &val, NULL))
-            {
-              if (!qstrcmp (val , "required"))
-                myPrefs.set (i, 2);
-              else if (!qstrcmp (val , "preferred"))
-                myPrefs.set (i, 1);
-              else if (!qstrcmp (val , "tolerated"))
-                myPrefs.set (i, 0);
-            }
-          continue;
+            continue;
         }
 
-      switch (myPrefs.type (i))
+        if (i == Prefs::ENCRYPTION)
         {
-          case QVariant::Int:
+            auto const str = getValue<QString>(b);
+
+            if (str)
             {
-              int64_t val;
-              if (tr_variantGetInt (b, &val))
-                myPrefs.set (i, static_cast<int>(val));
-              break;
+                if (*str == QStringLiteral("required"))
+                {
+                    prefs_.set(i, 2);
+                }
+                else if (*str == QStringLiteral("preferred"))
+                {
+                    prefs_.set(i, 1);
+                }
+                else if (*str == QStringLiteral("tolerated"))
+                {
+                    prefs_.set(i, 0);
+                }
             }
-          case QVariant::Double:
+
+            continue;
+        }
+
+        switch (prefs_.type(i))
+        {
+        case QVariant::Int:
             {
-              double val;
-              if (tr_variantGetReal (b, &val))
-                myPrefs.set (i, val);
-              break;
+                auto const value = getValue<int>(b);
+
+                if (value)
+                {
+                    prefs_.set(i, *value);
+                }
+
+                break;
             }
-          case QVariant::Bool:
+
+        case QVariant::Double:
             {
-              bool val;
-              if (tr_variantGetBool (b, &val))
-                myPrefs.set (i, val);
-              break;
+                auto const value = getValue<double>(b);
+
+                if (value)
+                {
+                    prefs_.set(i, *value);
+                }
+
+                break;
             }
-          case CustomVariantType::FilterModeType:
-          case CustomVariantType::SortModeType:
-          case QVariant::String:
+
+        case QVariant::Bool:
             {
-              const char * val;
-              if (tr_variantGetStr (b, &val, NULL))
-                myPrefs.set (i, QString::fromUtf8 (val));
-              break;
+                auto const value = getValue<bool>(b);
+
+                if (value)
+                {
+                    prefs_.set(i, *value);
+                }
+
+                break;
             }
-          default:
+
+        case CustomVariantType::FilterModeType:
+        case CustomVariantType::SortModeType:
+        case QVariant::String:
+            {
+                auto const value = getValue<QString>(b);
+
+                if (value)
+                {
+                    prefs_.set(i, *value);
+                }
+
+                break;
+            }
+
+        default:
             break;
         }
     }
 
-  bool b;
-  double x;
-  if (tr_variantDictFindBool (d, TR_KEY_seedRatioLimited, &b))
-    myPrefs.set (Prefs::RATIO_ENABLED, b);
-  if (tr_variantDictFindReal (d, TR_KEY_seedRatioLimit, &x))
-    myPrefs.set (Prefs::RATIO, x);
-
-  /* Use the C API to get settings that, for security reasons, aren't supported by RPC */
-  if (mySession != 0)
+    auto const b = dictFind<bool>(d, TR_KEY_seedRatioLimited);
+    if (b)
     {
-      myPrefs.set (Prefs::RPC_ENABLED,           tr_sessionIsRPCEnabled (mySession));
-      myPrefs.set (Prefs::RPC_AUTH_REQUIRED,     tr_sessionIsRPCPasswordEnabled (mySession));
-      myPrefs.set (Prefs::RPC_PASSWORD,          QString::fromUtf8 (tr_sessionGetRPCPassword (mySession)));
-      myPrefs.set (Prefs::RPC_PORT,              tr_sessionGetRPCPort (mySession));
-      myPrefs.set (Prefs::RPC_USERNAME,          QString::fromUtf8 (tr_sessionGetRPCUsername (mySession)));
-      myPrefs.set (Prefs::RPC_WHITELIST_ENABLED, tr_sessionGetRPCWhitelistEnabled (mySession));
-      myPrefs.set (Prefs::RPC_WHITELIST,         QString::fromUtf8 (tr_sessionGetRPCWhitelist (mySession)));
+        prefs_.set(Prefs::RATIO_ENABLED, *b);
     }
 
-  if (tr_variantDictFindInt (d, TR_KEY_blocklist_size, &i) && i!=blocklistSize ())
-    setBlocklistSize (i);
-
-  if (tr_variantDictFindStr (d, TR_KEY_version, &str, NULL) && (mySessionVersion != QString::fromUtf8 (str)))
-    mySessionVersion = QString::fromUtf8 (str);
-
-  //std::cerr << "Session::updateInfo end" << std::endl;
-  connect (&myPrefs, SIGNAL (changed (int)), this, SLOT (updatePref (int)));
-
-  emit sessionUpdated ();
-}
-
-void
-Session::setBlocklistSize (int64_t i)
-{
-  myBlocklistSize = i;
-
-  emit blocklistUpdated (i);
-}
-
-void
-Session::addTorrent (const AddData& addMe, tr_variant * args, bool trashOriginal)
-{
-  assert (tr_variantDictFind (args, TR_KEY_filename) == nullptr);
-  assert (tr_variantDictFind (args, TR_KEY_metainfo) == nullptr);
-
-  if (tr_variantDictFind (args, TR_KEY_paused) == nullptr)
-    tr_variantDictAddBool (args, TR_KEY_paused, !myPrefs.getBool (Prefs::START));
-
-  switch (addMe.type)
+    auto const x = dictFind<double>(d, TR_KEY_seedRatioLimit);
+    if (x)
     {
-      case AddData::MAGNET:
-        tr_variantDictAddStr (args, TR_KEY_filename, addMe.magnet.toUtf8 ().constData ());
+        prefs_.set(Prefs::RATIO, *x);
+    }
+
+    /* Use the C API to get settings that, for security reasons, aren't supported by RPC */
+    if (session_ != nullptr)
+    {
+        prefs_.set(Prefs::RPC_ENABLED, tr_sessionIsRPCEnabled(session_));
+        prefs_.set(Prefs::RPC_AUTH_REQUIRED, tr_sessionIsRPCPasswordEnabled(session_));
+        prefs_.set(Prefs::RPC_PASSWORD, QString::fromUtf8(tr_sessionGetRPCPassword(session_)));
+        prefs_.set(Prefs::RPC_PORT, tr_sessionGetRPCPort(session_));
+        prefs_.set(Prefs::RPC_USERNAME, QString::fromUtf8(tr_sessionGetRPCUsername(session_)));
+        prefs_.set(Prefs::RPC_WHITELIST_ENABLED, tr_sessionGetRPCWhitelistEnabled(session_));
+        prefs_.set(Prefs::RPC_WHITELIST, QString::fromUtf8(tr_sessionGetRPCWhitelist(session_)));
+    }
+
+    auto const size = dictFind<int>(d, TR_KEY_blocklist_size);
+    if (size && *size != blocklistSize())
+    {
+        setBlocklistSize(*size);
+    }
+
+    auto str = dictFind<QString>(d, TR_KEY_version);
+    if (str)
+    {
+        session_version_ = *str;
+    }
+
+    str = dictFind<QString>(d, TR_KEY_session_id);
+    if (str)
+    {
+        session_id_ = *str;
+        is_definitely_local_session_ = tr_session_id_is_local(session_id_.toUtf8().constData());
+    }
+    else
+    {
+        session_id_.clear();
+    }
+
+    // std::cerr << "Session::updateInfo end" << std::endl;
+    connect(&prefs_, SIGNAL(changed(int)), this, SLOT(updatePref(int)));
+
+    emit sessionUpdated();
+}
+
+void Session::setBlocklistSize(int64_t i)
+{
+    blocklist_size_ = i;
+
+    emit blocklistUpdated(i);
+}
+
+void Session::addTorrent(AddData const& add_me, tr_variant* args, bool trash_original)
+{
+    assert(tr_variantDictFind(args, TR_KEY_filename) == nullptr);
+    assert(tr_variantDictFind(args, TR_KEY_metainfo) == nullptr);
+
+    if (tr_variantDictFind(args, TR_KEY_paused) == nullptr)
+    {
+        dictAdd(args, TR_KEY_paused, !prefs_.getBool(Prefs::START));
+    }
+
+    switch (add_me.type)
+    {
+    case AddData::MAGNET:
+        dictAdd(args, TR_KEY_filename, add_me.magnet);
         break;
 
-      case AddData::URL:
-        tr_variantDictAddStr (args, TR_KEY_filename, addMe.url.toString ().toUtf8 ().constData ());
+    case AddData::URL:
+        dictAdd(args, TR_KEY_filename, add_me.url.toString());
         break;
 
-      case AddData::FILENAME: /* fall-through */
-      case AddData::METAINFO:
+    case AddData::FILENAME: /* fall-through */
+    case AddData::METAINFO:
+        dictAdd(args, TR_KEY_metainfo, add_me.toBase64());
+        break;
+
+    default:
+        qWarning() << "Unhandled AddData type: " << add_me.type;
+        break;
+    }
+
+    auto* q = new RpcQueue();
+
+    q->add([this, args]()
         {
-          const QByteArray b64 = addMe.toBase64 ();
-          tr_variantDictAddRaw (args, TR_KEY_metainfo, b64.constData (), b64.size ());
-          break;
+            return exec("torrent-add", args);
+        },
+        [add_me](RpcResponse const& r)
+        {
+            auto* d = new QMessageBox(QMessageBox::Warning, tr("Error Adding Torrent"),
+                QStringLiteral("<p><b>%1</b></p><p>%2</p>").arg(r.result).arg(add_me.readableName()), QMessageBox::Close,
+                qApp->activeWindow());
+            d->connect(d, &QMessageBox::rejected, d, &QMessageBox::deleteLater);
+            d->show();
+        });
+
+    q->add([this, add_me](RpcResponse const& r)
+        {
+            tr_variant* dup;
+            bool session_has_torrent = false;
+
+            if (tr_variantDictFindDict(r.args.get(), TR_KEY_torrent_added, &dup))
+            {
+                session_has_torrent = true;
+            }
+            else if (tr_variantDictFindDict(r.args.get(), TR_KEY_torrent_duplicate, &dup))
+            {
+                session_has_torrent = true;
+
+                auto const hash = dictFind<QString>(dup, TR_KEY_hashString);
+                if (hash)
+                {
+                    duplicates_.try_emplace(add_me.readableShortName(), *hash);
+                    duplicates_timer_.start(1000);
+                }
+            }
+
+            if (session_has_torrent && !add_me.filename.isEmpty())
+            {
+                QFile(add_me.filename).rename(QStringLiteral("%1.added").arg(add_me.filename));
+            }
+        });
+
+    if (trash_original && add_me.type == AddData::FILENAME)
+    {
+        q->add([add_me]()
+            {
+                QFile original(add_me.filename);
+                original.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+                original.remove();
+            });
+    }
+
+    q->run();
+}
+
+void Session::onDuplicatesTimer()
+{
+    decltype(duplicates_) duplicates;
+    duplicates.swap(duplicates_);
+
+    QStringList lines;
+    for (auto it : duplicates)
+    {
+        lines.push_back(tr("%1 (copy of %2)")
+            .arg(it.first)
+            .arg(it.second.left(7)));
+    }
+
+    if (!lines.empty())
+    {
+        lines.sort(Qt::CaseInsensitive);
+        auto const title = tr("Duplicate Torrent(s)", "", lines.size());
+        auto const detail = lines.join(QStringLiteral("\n"));
+        auto const detail_text = tr("Unable to add %n duplicate torrent(s)", "", lines.size());
+        auto const use_detail = lines.size() > 1;
+        auto const text = use_detail ? detail_text : detail;
+
+        auto* d = new QMessageBox(QMessageBox::Warning, title, text, QMessageBox::Close, qApp->activeWindow());
+        if (use_detail)
+        {
+            d->setDetailedText(detail);
         }
 
-      default:
-        qWarning() << "Unhandled AddData type: " << addMe.type;
-        break;
-    }
-
-  const int64_t tag = getUniqueTag ();
-
-  // maybe delete the source .torrent
-  FileAdded * fileAdded = new FileAdded (tag, addMe.readableName ());
-  if (trashOriginal && addMe.type == AddData::FILENAME)
-    fileAdded->setFileToDelete (addMe.filename);
-  connect (this, SIGNAL (executed (int64_t, QString, tr_variant *)),
-           fileAdded, SLOT (executed (int64_t, QString, tr_variant *)));
-
-  exec ("torrent-add", args, tag);
-}
-
-void
-Session::addTorrent (const AddData& addMe)
-{
-  tr_variant args;
-  tr_variantInitDict (&args, 3);
-
-  addTorrent (addMe, &args, myPrefs.getBool (Prefs::TRASH_ORIGINAL));
-}
-
-void
-Session::addNewlyCreatedTorrent (const QString& filename, const QString& localPath)
-{
-  const QByteArray b64 = AddData (filename).toBase64 ();
-
-  tr_variant args;
-  tr_variantInitDict (&args, 3);
-  tr_variantDictAddStr (&args, TR_KEY_download_dir, localPath.toUtf8 ().constData ());
-  tr_variantDictAddBool (&args, TR_KEY_paused, !myPrefs.getBool (Prefs::START));
-  tr_variantDictAddRaw (&args, TR_KEY_metainfo, b64.constData (), b64.size ());
-
-  exec ("torrent-add", &args);
-}
-
-void
-Session::removeTorrents (const QSet<int>& ids, bool deleteFiles)
-{
-  if (!ids.isEmpty ())
-    {
-      tr_variant args;
-      tr_variantInitDict (&args, 2);
-      addOptionalIds (&args, ids);
-      tr_variantDictAddInt (&args, TR_KEY_delete_local_data, deleteFiles);
-
-      exec ("torrent-remove", &args);
+        d->connect(d, &QMessageBox::rejected, d, &QMessageBox::deleteLater);
+        d->show();
     }
 }
 
-void
-Session::verifyTorrents (const QSet<int>& ids)
+void Session::addTorrent(AddData const& add_me)
 {
-  if (!ids.isEmpty ())
-    {
-      tr_variant args;
-      tr_variantInitDict (&args, 1);
-      addOptionalIds (&args, ids);
+    tr_variant args;
+    tr_variantInitDict(&args, 3);
 
-      exec ("torrent-verify", &args);
+    addTorrent(add_me, &args, prefs_.getBool(Prefs::TRASH_ORIGINAL));
+}
+
+void Session::addNewlyCreatedTorrent(QString const& filename, QString const& local_path)
+{
+    QByteArray const b64 = AddData(filename).toBase64();
+
+    tr_variant args;
+    tr_variantInitDict(&args, 3);
+    dictAdd(&args, TR_KEY_download_dir, local_path);
+    dictAdd(&args, TR_KEY_paused, !prefs_.getBool(Prefs::START));
+    dictAdd(&args, TR_KEY_metainfo, b64);
+
+    exec("torrent-add", &args);
+}
+
+void Session::removeTorrents(torrent_ids_t const& ids, bool delete_files)
+{
+    if (!ids.empty())
+    {
+        tr_variant args;
+        tr_variantInitDict(&args, 2);
+        addOptionalIds(&args, ids);
+        dictAdd(&args, TR_KEY_delete_local_data, delete_files);
+
+        exec("torrent-remove", &args);
     }
 }
 
-void
-Session::reannounceTorrents (const QSet<int>& ids)
+void Session::verifyTorrents(torrent_ids_t const& ids)
 {
-  if (!ids.isEmpty ())
+    if (!ids.empty())
     {
-      tr_variant args;
-      tr_variantInitDict (&args, 1);
-      addOptionalIds (&args, ids);
+        tr_variant args;
+        tr_variantInitDict(&args, 1);
+        addOptionalIds(&args, ids);
 
-      exec ("torrent-reannounce", &args);
+        exec("torrent-verify", &args);
+    }
+}
+
+void Session::reannounceTorrents(torrent_ids_t const& ids)
+{
+    if (!ids.empty())
+    {
+        tr_variant args;
+        tr_variantInitDict(&args, 1);
+        addOptionalIds(&args, ids);
+
+        exec("torrent-reannounce", &args);
     }
 }
 
@@ -971,22 +1234,21 @@ Session::reannounceTorrents (const QSet<int>& ids)
 ****
 ***/
 
-void
-Session::launchWebInterface ()
+void Session::launchWebInterface()
 {
-  QUrl url;
+    QUrl url;
 
-  if (!mySession) // remote session
+    if (session_ == nullptr) // remote session
     {
-      url = myRpc.url ();
-      url.setPath (QLatin1String ("/transmission/web/"));
+        url = rpc_.url();
+        url.setPath(QStringLiteral("/transmission/web/"));
     }
-  else // local session
+    else // local session
     {
-      url.setScheme (QLatin1String ("http"));
-      url.setHost (QLatin1String ("localhost"));
-      url.setPort (myPrefs.getInt (Prefs::RPC_PORT));
+        url.setScheme(QStringLiteral("http"));
+        url.setHost(QStringLiteral("localhost"));
+        url.setPort(prefs_.getInt(Prefs::RPC_PORT));
     }
 
-  QDesktopServices::openUrl (url);
+    QDesktopServices::openUrl(url);
 }

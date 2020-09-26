@@ -4,55 +4,62 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_FORMATTER_H
-#define QTR_FORMATTER_H
+#pragma once
 
+#include <array>
 #include <cstdint> // int64_t
 
-#include <QCoreApplication>
+#include <QCoreApplication> // Q_DECLARE_TR_FUNCTIONS
 #include <QString>
 
 class Speed;
 
 class Formatter
 {
-    Q_DECLARE_TR_FUNCTIONS (Formatter)
+    Q_DECLARE_TR_FUNCTIONS(Formatter)
 
-  public:
+public:
     enum Size
     {
-      B,
-      KB,
-      MB,
-      GB,
-      TB
+        B,
+        KB,
+        MB,
+        GB,
+        TB,
+
+        NUM_SIZES
     };
 
     enum Type
     {
-      SPEED,
-      SIZE,
-      MEM
+        SPEED,
+        SIZE,
+        MEM,
+
+        NUM_TYPES
     };
 
-  public:
-    static QString memToString (int64_t bytes);
-    static QString sizeToString (int64_t bytes);
-    static QString speedToString (const Speed& speed);
-    static QString percentToString (double x);
-    static QString ratioToString (double ratio);
-    static QString timeToString (int seconds);
-    static QString uploadSpeedToString (const Speed& up);
-    static QString downloadSpeedToString (const Speed& down);
+    static constexpr int SpeedBase = 1000;
+    static constexpr int SizeBase = 1000;
+    static constexpr int MemBase = 1024;
 
-    static QString unitStr (Type t, Size s) { return unitStrings[t][s]; }
-    static void initUnits ();
+    static Formatter& get();
 
-  private:
-    static QString unitStrings[3][5];
+    QString memToString(int64_t bytes) const;
+    QString sizeToString(int64_t bytes) const;
+    QString speedToString(Speed const& speed) const;
+    QString percentToString(double x) const;
+    QString ratioToString(double ratio) const;
+    QString timeToString(int seconds) const;
+    QString uploadSpeedToString(Speed const& up) const;
+    QString downloadSpeedToString(Speed const& down) const;
+    QString unitStr(Type t, Size s) const;
+
+protected:
+    Formatter();
+
+private:
+    std::array<std::array<QString, Formatter::NUM_SIZES>, Formatter::NUM_TYPES> const UnitStrings;
 };
-
-#endif // QTR_FORMATTER_H

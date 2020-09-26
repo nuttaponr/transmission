@@ -4,8 +4,9 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
+
+#include "MakeDialog.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -13,13 +14,12 @@
 #include <QPushButton>
 #include <QTimer>
 
-#include <libtransmission/transmission.h>
 #include <libtransmission/makemeta.h>
+#include <libtransmission/transmission.h>
 #include <libtransmission/utils.h>
 
 #include "ColumnResizer.h"
 #include "Formatter.h"
-#include "MakeDialog.h"
 #include "Session.h"
 #include "Utils.h"
 
@@ -27,94 +27,107 @@
 
 namespace
 {
-  class MakeProgressDialog: public BaseDialog
-  {
-      Q_OBJECT
 
-    public:
-      MakeProgressDialog (Session& session, tr_metainfo_builder& builder, QWidget * parent = nullptr);
+class MakeProgressDialog : public BaseDialog
+{
+    Q_OBJECT
 
-    private slots:
-      void onButtonBoxClicked (QAbstractButton *);
-      void onProgress ();
+public:
+    MakeProgressDialog(Session& session, tr_metainfo_builder& builder, QWidget* parent = nullptr);
 
-    private:
-      Session& mySession;
-      tr_metainfo_builder& myBuilder;
-      Ui::MakeProgressDialog ui;
-      QTimer myTimer;
-  };
+private slots:
+    void onButtonBoxClicked(QAbstractButton* button);
+    void onProgress();
+
+private:
+    Session& session_;
+    tr_metainfo_builder& builder_;
+    Ui::MakeProgressDialog ui_ = {};
+    QTimer timer_;
+};
+
+} // namespace
+
+MakeProgressDialog::MakeProgressDialog(Session& session, tr_metainfo_builder& builder, QWidget* parent) :
+    BaseDialog(parent),
+    session_(session),
+    builder_(builder)
+{
+    ui_.setupUi(this);
+
+    connect(ui_.dialogButtons, SIGNAL(clicked(QAbstractButton*)), this, SLOT(onButtonBoxClicked(QAbstractButton*)));
+
+    connect(&timer_, SIGNAL(timeout()), this, SLOT(onProgress()));
+    timer_.start(100);
+
+    onProgress();
 }
 
-MakeProgressDialog::MakeProgressDialog (Session& session, tr_metainfo_builder& builder, QWidget * parent):
-  BaseDialog (parent),
-  mySession (session),
-  myBuilder (builder)
+void MakeProgressDialog::onButtonBoxClicked(QAbstractButton* button)
 {
-  ui.setupUi (this);
-
-  connect (ui.dialogButtons, SIGNAL (clicked (QAbstractButton *)),
-           this, SLOT (onButtonBoxClicked (QAbstractButton *)));
-
-  connect (&myTimer, SIGNAL (timeout ()), this, SLOT (onProgress ()));
-  myTimer.start (100);
-
-  onProgress ();
-}
-
-void
-MakeProgressDialog::onButtonBoxClicked (QAbstractButton * button)
-{
-  switch (ui.dialogButtons->standardButton (button))
+    switch (ui_.dialogButtons->standardButton(button))
     {
-      case QDialogButtonBox::Open:
-        mySession.addNewlyCreatedTorrent (QString::fromUtf8 (myBuilder.outputFile),
-                                          QFileInfo (QString::fromUtf8 (myBuilder.top)).dir ().path ());
+    case QDialogButtonBox::Open:
+        session_.addNewlyCreatedTorrent(QString::fromUtf8(builder_.outputFile),
+            QFileInfo(QString::fromUtf8(builder_.top)).dir().path());
         break;
 
-      case QDialogButtonBox::Abort:
-        myBuilder.abortFlag = true;
+    case QDialogButtonBox::Abort:
+        builder_.abortFlag = true;
         break;
 
-      default: // QDialogButtonBox::Ok:
+    default: // QDialogButtonBox::Ok:
         break;
     }
 
-  close ();
+    close();
 }
 
-void
-MakeProgressDialog::onProgress ()
+void MakeProgressDialog::onProgress()
 {
-  // progress bar
-  const tr_metainfo_builder& b = myBuilder;
-  const double denom = b.pieceCount ? b.pieceCount : 1;
-  ui.progressBar->setValue (static_cast<int> ((100.0 * b.pieceIndex) / denom));
+    // progress bar
+    tr_metainfo_builder const& b = builder_;
+    double const denom = b.pieceCount != 0 ? b.pieceCount : 1;
+    ui_.progressBar->setValue(static_cast<int>((100.0 * b.pieceIndex) / denom));
 
-  // progress label
-  const QString top = QString::fromUtf8 (b.top);
-  const QString base (QFileInfo (top).completeBaseName ());
-  QString str;
-  if (!b.isDone)
-    str = tr ("Creating \"%1\"").arg (base);
-  else if (b.result == TR_MAKEMETA_OK)
-    str = tr ("Created \"%1\"!").arg (base);
-  else if (b.result == TR_MAKEMETA_URL)
-    str = tr ("Error: invalid announce URL \"%1\"").arg (QString::fromUtf8 (b.errfile));
-  else if (b.result == TR_MAKEMETA_CANCELLED)
-    str = tr ("Cancelled");
-  else if (b.result == TR_MAKEMETA_IO_READ)
-    str = tr ("Error reading \"%1\": %2").arg (QString::fromUtf8 (b.errfile)).
-                                          arg (QString::fromLocal8Bit (tr_strerror (b.my_errno)));
-  else if (b.result == TR_MAKEMETA_IO_WRITE)
-    str = tr ("Error writing \"%1\": %2").arg (QString::fromUtf8 (b.errfile)).
-                                          arg (QString::fromLocal8Bit (tr_strerror (b.my_errno)));
-  ui.progressLabel->setText (str);
+    // progress label
+    QString const top = QString::fromUtf8(b.top);
+    QString const base(QFileInfo(top).completeBaseName());
+    QString str;
 
-  // buttons
-  ui.dialogButtons->button (QDialogButtonBox::Abort)->setEnabled (!b.isDone);
-  ui.dialogButtons->button (QDialogButtonBox::Ok)->setEnabled (b.isDone);
-  ui.dialogButtons->button (QDialogButtonBox::Open)->setEnabled (b.isDone && b.result == TR_MAKEMETA_OK);
+    if (!b.isDone)
+    {
+        str = tr("Creating \"%1\"").arg(base);
+    }
+    else if (b.result == TR_MAKEMETA_OK)
+    {
+        str = tr("Created \"%1\"!").arg(base);
+    }
+    else if (b.result == TR_MAKEMETA_URL)
+    {
+        str = tr("Error: invalid announce URL \"%1\"").arg(QString::fromUtf8(b.errfile));
+    }
+    else if (b.result == TR_MAKEMETA_CANCELLED)
+    {
+        str = tr("Cancelled");
+    }
+    else if (b.result == TR_MAKEMETA_IO_READ)
+    {
+        str = tr("Error reading \"%1\": %2").arg(QString::fromUtf8(b.errfile)).
+            arg(QString::fromUtf8(tr_strerror(b.my_errno)));
+    }
+    else if (b.result == TR_MAKEMETA_IO_WRITE)
+    {
+        str = tr("Error writing \"%1\": %2").arg(QString::fromUtf8(b.errfile)).
+            arg(QString::fromUtf8(tr_strerror(b.my_errno)));
+    }
+
+    ui_.progressLabel->setText(str);
+
+    // buttons
+    ui_.dialogButtons->button(QDialogButtonBox::Abort)->setEnabled(!b.isDone);
+    ui_.dialogButtons->button(QDialogButtonBox::Ok)->setEnabled(b.isDone);
+    ui_.dialogButtons->button(QDialogButtonBox::Open)->setEnabled(b.isDone && b.result == TR_MAKEMETA_OK);
 }
 
 #include "MakeDialog.moc"
@@ -123,162 +136,159 @@ MakeProgressDialog::onProgress ()
 ****
 ***/
 
-void
-MakeDialog::makeTorrent ()
+void MakeDialog::makeTorrent()
 {
-  if (myBuilder == nullptr)
-    return;
-
-  // get the tiers
-  int tier = 0;
-  QVector<tr_tracker_info> trackers;
-  for (const QString& line: ui.trackersEdit->toPlainText ().split (QLatin1Char ('\n')))
+    if (builder_ == nullptr)
     {
-      const QString announceUrl = line.trimmed ();
-      if (announceUrl.isEmpty ())
+        return;
+    }
+
+    // get the tiers
+    int tier = 0;
+    QVector<tr_tracker_info> trackers;
+
+    for (QString const& line : ui_.trackersEdit->toPlainText().split(QLatin1Char('\n')))
+    {
+        QString const announce_url = line.trimmed();
+
+        if (announce_url.isEmpty())
         {
-          ++tier;
+            ++tier;
         }
-      else
+        else
         {
-          tr_tracker_info tmp;
-          tmp.announce = tr_strdup (announceUrl.toUtf8 ().constData ());
-          tmp.tier = tier;
-          trackers.append (tmp);
+            tr_tracker_info tmp;
+            tmp.announce = tr_strdup(announce_url.toUtf8().constData());
+            tmp.tier = tier;
+            trackers.append(tmp);
         }
     }
 
-  // the file to create
-  const QString path = QString::fromUtf8 (myBuilder->top);
-  const QString torrentName = QFileInfo (path).completeBaseName () + QLatin1String (".torrent");
-  const QString target = QDir (ui.destinationButton->path ()).filePath (torrentName);
+    // the file to create
+    QString const path = QString::fromUtf8(builder_->top);
+    auto const torrent_name = QFileInfo(path).completeBaseName() + QStringLiteral(".torrent");
+    QString const target = QDir(ui_.destinationButton->path()).filePath(torrent_name);
 
-  // comment
-  QString comment;
-  if (ui.commentCheck->isChecked ())
-    comment = ui.commentEdit->text ();
+    // comment
+    QString comment;
 
-  // start making the torrent
-  tr_makeMetaInfo (myBuilder.get (),
-                   target.toUtf8 ().constData (),
-                   trackers.isEmpty () ? NULL : trackers.data (),
-                   trackers.size (),
-                   comment.isEmpty () ? NULL : comment.toUtf8 ().constData (),
-                   ui.privateCheck->isChecked ());
+    if (ui_.commentCheck->isChecked())
+    {
+        comment = ui_.commentEdit->text();
+    }
 
-  // pop up the dialog
-  MakeProgressDialog * dialog = new MakeProgressDialog (mySession, *myBuilder, this);
-  dialog->setAttribute (Qt::WA_DeleteOnClose);
-  dialog->open ();
+    // start making the torrent
+    tr_makeMetaInfo(builder_.get(), target.toUtf8().constData(), trackers.isEmpty() ? nullptr : trackers.data(),
+        trackers.size(), comment.isEmpty() ? nullptr : comment.toUtf8().constData(), ui_.privateCheck->isChecked());
+
+    // pop up the dialog
+    auto* dialog = new MakeProgressDialog(session_, *builder_, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
 }
 
 /***
 ****
 ***/
 
-QString
-MakeDialog::getSource () const
+QString MakeDialog::getSource() const
 {
-  return (ui.sourceFileRadio->isChecked () ? ui.sourceFileButton : ui.sourceFolderButton)->path ();
+    return (ui_.sourceFileRadio->isChecked() ? ui_.sourceFileButton : ui_.sourceFolderButton)->path();
 }
 
 /***
 ****
 ***/
 
-void
-MakeDialog::onSourceChanged ()
+void MakeDialog::onSourceChanged()
 {
-  myBuilder.reset ();
+    builder_.reset();
 
-  const QString filename = getSource ();
-  if (!filename.isEmpty ())
-    myBuilder.reset (tr_metaInfoBuilderCreate (filename.toUtf8 ().constData ()));
+    QString const filename = getSource();
 
-  QString text;
-  if (myBuilder == nullptr)
+    if (!filename.isEmpty())
     {
-      text = tr ("<i>No source selected<i>");
-    }
-  else
-    {
-      QString files = tr ("%Ln File(s)", 0, myBuilder->fileCount);
-      QString pieces = tr ("%Ln Piece(s)", 0, myBuilder->pieceCount);
-      text = tr ("%1 in %2; %3 @ %4")
-               .arg (Formatter::sizeToString (myBuilder->totalSize))
-               .arg (files)
-               .arg (pieces)
-               .arg (Formatter::sizeToString (myBuilder->pieceSize));
+        builder_.reset(tr_metaInfoBuilderCreate(filename.toUtf8().constData()));
     }
 
-  ui.sourceSizeLabel->setText (text);
+    QString text;
+
+    if (builder_ == nullptr)
+    {
+        text = tr("<i>No source selected</i>");
+    }
+    else
+    {
+        QString files = tr("%Ln File(s)", nullptr, builder_->fileCount);
+        QString pieces = tr("%Ln Piece(s)", nullptr, builder_->pieceCount);
+        text = tr("%1 in %2; %3 @ %4").arg(Formatter::get().sizeToString(builder_->totalSize)).arg(files).arg(pieces).
+            arg(Formatter::get().sizeToString(builder_->pieceSize));
+    }
+
+    ui_.sourceSizeLabel->setText(text);
 }
 
-MakeDialog::MakeDialog (Session& session, QWidget * parent):
-  BaseDialog (parent),
-  mySession (session),
-  myBuilder (nullptr, &tr_metaInfoBuilderFree)
+MakeDialog::MakeDialog(Session& session, QWidget* parent) :
+    BaseDialog(parent),
+    session_(session),
+    builder_(nullptr, &tr_metaInfoBuilderFree)
 {
-  ui.setupUi (this);
+    ui_.setupUi(this);
 
-  ui.destinationButton->setMode (PathButton::DirectoryMode);
-  ui.destinationButton->setPath (QDir::homePath ());
+    ui_.destinationButton->setMode(PathButton::DirectoryMode);
+    ui_.destinationButton->setPath(QDir::homePath());
 
-  ui.sourceFolderButton->setMode (PathButton::DirectoryMode);
-  ui.sourceFileButton->setMode (PathButton::FileMode);
+    ui_.sourceFolderButton->setMode(PathButton::DirectoryMode);
+    ui_.sourceFileButton->setMode(PathButton::FileMode);
 
-  ColumnResizer * cr (new ColumnResizer (this));
-  cr->addLayout (ui.filesSectionLayout);
-  cr->addLayout (ui.propertiesSectionLayout);
-  cr->update ();
+    auto* cr = new ColumnResizer(this);
+    cr->addLayout(ui_.filesSectionLayout);
+    cr->addLayout(ui_.propertiesSectionLayout);
+    cr->update();
 
-  resize (minimumSizeHint ());
+    resize(minimumSizeHint());
 
-  connect (ui.sourceFolderRadio, SIGNAL (toggled (bool)), this, SLOT (onSourceChanged ()));
-  connect (ui.sourceFolderButton, SIGNAL (pathChanged (QString)), this, SLOT (onSourceChanged ()));
-  connect (ui.sourceFileRadio, SIGNAL (toggled (bool)), this, SLOT (onSourceChanged ()));
-  connect (ui.sourceFileButton, SIGNAL (pathChanged (QString)), this, SLOT (onSourceChanged ()));
+    connect(ui_.sourceFolderRadio, SIGNAL(toggled(bool)), this, SLOT(onSourceChanged()));
+    connect(ui_.sourceFolderButton, SIGNAL(pathChanged(QString)), this, SLOT(onSourceChanged()));
+    connect(ui_.sourceFileRadio, SIGNAL(toggled(bool)), this, SLOT(onSourceChanged()));
+    connect(ui_.sourceFileButton, SIGNAL(pathChanged(QString)), this, SLOT(onSourceChanged()));
 
-  connect (ui.dialogButtons, SIGNAL (accepted ()), this, SLOT (makeTorrent ()));
-  connect (ui.dialogButtons, SIGNAL (rejected ()), this, SLOT (close ()));
+    connect(ui_.dialogButtons, SIGNAL(accepted()), this, SLOT(makeTorrent()));
+    connect(ui_.dialogButtons, SIGNAL(rejected()), this, SLOT(close()));
 
-  onSourceChanged ();
-}
-
-MakeDialog::~MakeDialog ()
-{
+    onSourceChanged();
 }
 
 /***
 ****
 ***/
 
-void
-MakeDialog::dragEnterEvent (QDragEnterEvent * event)
+void MakeDialog::dragEnterEvent(QDragEnterEvent* event)
 {
-  const QMimeData * mime = event->mimeData ();
+    QMimeData const* mime = event->mimeData();
 
-  if (!mime->urls ().isEmpty () && QFileInfo (mime->urls ().front ().path ()).exists ())
-    event->acceptProposedAction ();
+    if (!mime->urls().isEmpty() && QFileInfo(mime->urls().front().path()).exists())
+    {
+        event->acceptProposedAction();
+    }
 }
 
-void
-MakeDialog::dropEvent (QDropEvent * event)
+void MakeDialog::dropEvent(QDropEvent* event)
 {
-  const QString filename = event->mimeData ()->urls ().front ().path ();
-  const QFileInfo fileInfo (filename);
+    QString const filename = event->mimeData()->urls().front().path();
+    QFileInfo const file_info(filename);
 
-  if (fileInfo.exists ())
+    if (file_info.exists())
     {
-      if (fileInfo.isDir ())
+        if (file_info.isDir())
         {
-          ui.sourceFolderRadio->setChecked (true);
-          ui.sourceFolderButton->setPath (filename);
+            ui_.sourceFolderRadio->setChecked(true);
+            ui_.sourceFolderButton->setPath(filename);
         }
-      else // it's a file
+        else // it's a file
         {
-          ui.sourceFileRadio->setChecked (true);
-          ui.sourceFileButton->setPath (filename);
+            ui_.sourceFileRadio->setChecked(true);
+            ui_.sourceFileButton->setPath(filename);
         }
     }
 }

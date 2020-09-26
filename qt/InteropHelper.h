@@ -4,40 +4,34 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_INTEROP_HELPER_H
-#define QTR_INTEROP_HELPER_H
+#pragma once
 
 #ifdef ENABLE_COM_INTEROP
-  #include "ComInteropHelper.h"
+#include "ComInteropHelper.h"
 #endif
 #ifdef ENABLE_DBUS_INTEROP
-  #include "DBusInteropHelper.h"
+#include "DBusInteropHelper.h"
 #endif
 
-class QAxObject;
 class QString;
-class QVariant;
 
 class InteropHelper
 {
-  public:
-    bool isConnected () const;
+public:
+    bool isConnected() const;
 
-    bool addMetainfo (const QString& metainfo);
+    bool addMetainfo(QString const& metainfo);
 
-    static void initialize ();
-    static void registerObject (QObject * parent);
+    static void initialize();
+    static void registerObject(QObject* parent);
 
-  private:
+private:
 #ifdef ENABLE_DBUS_INTEROP
-    DBusInteropHelper myDbusClient;
+    DBusInteropHelper dbus_client_ = {};
 #endif
 #ifdef ENABLE_COM_INTEROP
-    ComInteropHelper myComClient;
+    ComInteropHelper com_client_ = {};
 #endif
 };
-
-#endif // QTR_INTEROP_HELPER_H

@@ -4,7 +4,6 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include <algorithm> // std::sort()
@@ -15,45 +14,43 @@
 #include "TorrentModel.h"
 #include "TrackerModel.h"
 
-int
-TrackerModel::rowCount (const QModelIndex& parent) const
+int TrackerModel::rowCount(QModelIndex const& parent) const
 {
-  Q_UNUSED (parent);
+    Q_UNUSED(parent)
 
-  return parent.isValid() ? 0 : myRows.size();
+    return parent.isValid() ? 0 : rows_.size();
 }
 
-QVariant
-TrackerModel::data (const QModelIndex& index, int role) const
+QVariant TrackerModel::data(QModelIndex const& index, int role) const
 {
-  QVariant var;
+    QVariant var;
 
-  const int row = index.row ();
+    int const row = index.row();
 
-  if ((0<=row) && (row<myRows.size()))
+    if (0 <= row && row < rows_.size())
     {
-      const TrackerInfo& trackerInfo = myRows.at (row);
+        TrackerInfo const& tracker_info = rows_.at(row);
 
-      switch (role)
+        switch (role)
         {
-          case Qt::DisplayRole:
-            var = trackerInfo.st.announce;
+        case Qt::DisplayRole:
+            var = tracker_info.st.announce;
             break;
 
-          case Qt::DecorationRole:
-            var = trackerInfo.st.getFavicon ();
+        case Qt::DecorationRole:
+            var = QIcon(tracker_info.st.getFavicon());
             break;
 
-          case TrackerRole:
-            var = qVariantFromValue (trackerInfo);
+        case TrackerRole:
+            var = QVariant::fromValue(tracker_info);
             break;
 
-          default:
+        default:
             break;
         }
     }
 
-  return var;
+    return var;
 }
 
 /***
@@ -62,91 +59,100 @@ TrackerModel::data (const QModelIndex& index, int role) const
 
 struct CompareTrackers
 {
-  bool operator() (const TrackerInfo& a, const TrackerInfo& b) const
-  {
-    if (a.torrentId != b.torrentId )
-      return a.torrentId < b.torrentId;
+    bool operator ()(TrackerInfo const& a, TrackerInfo const& b) const
+    {
+        if (a.torrent_id != b.torrent_id)
+        {
+            return a.torrent_id < b.torrent_id;
+        }
 
-    if (a.st.tier != b.st.tier)
-      return a.st.tier < b.st.tier;
+        if (a.st.tier != b.st.tier)
+        {
+            return a.st.tier < b.st.tier;
+        }
 
-    if (a.st.isBackup != b.st.isBackup)
-      return !a.st.isBackup;
+        if (a.st.is_backup != b.st.is_backup)
+        {
+            return !a.st.is_backup;
+        }
 
-    return a.st.announce < b.st.announce;
-  }
+        return a.st.announce < b.st.announce;
+    }
 };
 
-void
-TrackerModel::refresh (const TorrentModel& torrentModel, const QSet<int>& ids)
+void TrackerModel::refresh(TorrentModel const& torrent_model, torrent_ids_t const& ids)
 {
-  // build a list of the TrackerInfos
-  QVector<TrackerInfo> trackers;
-  for (const int id: ids)
+    // build a list of the TrackerInfos
+    QVector<TrackerInfo> trackers;
+
+    for (int const id : ids)
     {
-      const Torrent * tor = torrentModel.getTorrentFromId (id);
-      if (tor != 0)
+        Torrent const* tor = torrent_model.getTorrentFromId(id);
+
+        if (tor != nullptr)
         {
-          const TrackerStatsList trackerList = tor->trackerStats ();
-          for (const TrackerStat& st: trackerList)
+            TrackerStatsList const tracker_list = tor->trackerStats();
+
+            for (TrackerStat const& st : tracker_list)
             {
-              TrackerInfo trackerInfo;
-              trackerInfo.st = st;
-              trackerInfo.torrentId = id;
-              trackers.append (trackerInfo);
+                TrackerInfo tracker_info;
+                tracker_info.st = st;
+                tracker_info.torrent_id = id;
+                trackers.append(tracker_info);
             }
         }
     }
 
-  // sort 'em
-  CompareTrackers comp;
-  std::sort (trackers.begin(), trackers.end(), comp);
+    // sort 'em
+    CompareTrackers comp;
+    std::sort(trackers.begin(), trackers.end(), comp);
 
-  // merge 'em with the existing list
-  int oldIndex = 0;
-  int newIndex = 0;
+    // merge 'em with the existing list
+    int old_index = 0;
+    int new_index = 0;
 
-  while (oldIndex < myRows.size () || newIndex < trackers.size ())
+    while (old_index < rows_.size() || new_index < trackers.size())
     {
-      const bool isEndOfOld = oldIndex == myRows.size ();
-      const bool isEndOfNew = newIndex == trackers.size ();
+        bool const is_end_of_old = old_index == rows_.size();
+        bool const is_end_of_new = new_index == trackers.size();
 
-      if (isEndOfOld || (!isEndOfNew && comp (trackers.at (newIndex), myRows.at (oldIndex))))
+        if (is_end_of_old || (!is_end_of_new && comp(trackers.at(new_index), rows_.at(old_index))))
         {
-          // add this new row
-          beginInsertRows (QModelIndex (), oldIndex, oldIndex);
-          myRows.insert (oldIndex, trackers.at (newIndex));
-          endInsertRows ();
-          ++oldIndex;
-          ++newIndex;
+            // add this new row
+            beginInsertRows(QModelIndex(), old_index, old_index);
+            rows_.insert(old_index, trackers.at(new_index));
+            endInsertRows();
+            ++old_index;
+            ++new_index;
         }
-      else if (isEndOfNew || (!isEndOfOld && comp (myRows.at (oldIndex), trackers.at (newIndex))))
+        else if (is_end_of_new || (!is_end_of_old && comp(rows_.at(old_index), trackers.at(new_index))))
         {
-          // remove this old row
-          beginRemoveRows (QModelIndex (), oldIndex, oldIndex);
-          myRows.remove (oldIndex);
-          endRemoveRows ();
+            // remove this old row
+            beginRemoveRows(QModelIndex(), old_index, old_index);
+            rows_.remove(old_index);
+            endRemoveRows();
         }
-      else // update existing row
+        else // update existing row
         {
-          myRows[oldIndex].st = trackers.at (newIndex).st;
-          emit dataChanged (index (oldIndex, 0), index (oldIndex, 0));
-          ++oldIndex;
-          ++newIndex;
+            rows_[old_index].st = trackers.at(new_index).st;
+            emit dataChanged(index(old_index, 0), index(old_index, 0));
+            ++old_index;
+            ++new_index;
         }
     }
 }
 
-int
-TrackerModel::find (int torrentId, const QString& url) const
+int TrackerModel::find(int torrent_id, QString const& url) const
 {
-  for (int i=0, n=myRows.size(); i<n; ++i)
+    for (int i = 0, n = rows_.size(); i < n; ++i)
     {
-      const TrackerInfo& inf = myRows.at(i);
+        TrackerInfo const& inf = rows_.at(i);
 
-      if ((inf.torrentId == torrentId) &&  (url == inf.st.announce))
-        return i;
+        if (inf.torrent_id == torrent_id && url == inf.st.announce)
+        {
+            return i;
+        }
     }
 
-  return -1;
+    return -1;
 }

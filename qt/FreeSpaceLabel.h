@@ -1,48 +1,42 @@
 /*
- * This file Copyright (C) 2013-2015 Mnemosyne LLC
+ * This file Copyright (C) 2013-2016 Mnemosyne LLC
  *
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_FREE_SPACE_LABEL_H
-#define QTR_FREE_SPACE_LABEL_H
-
-#include <cstdint>
+#pragma once
 
 #include <QLabel>
 #include <QString>
 #include <QTimer>
 
+#include "Macros.h"
+
 class Session;
 
 extern "C"
 {
-  struct tr_variant;
+struct tr_variant;
 }
 
-class FreeSpaceLabel: public QLabel
+class FreeSpaceLabel : public QLabel
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(FreeSpaceLabel)
 
-  public:
-    FreeSpaceLabel (QWidget * parent = nullptr);
-    virtual ~FreeSpaceLabel () {}
+public:
+    FreeSpaceLabel(QWidget* parent = nullptr);
 
-    void setSession (Session& session);
-    void setPath (const QString& folder);
+    void setSession(Session& session);
+    void setPath(QString const& folder);
 
-  private slots:
-    void onSessionExecuted (int64_t tag, const QString& result, tr_variant * arguments);
-    void onTimer ();
+private slots:
+    void onTimer();
 
-  private:
-    Session * mySession;
-    int64_t myTag;
-    QString myPath;
-    QTimer myTimer;
+private:
+    Session* session_ = {};
+    QString path_;
+    QTimer timer_;
 };
-
-#endif // QTR_FREE_SPACE_LABEL_H

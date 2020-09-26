@@ -15,7 +15,6 @@ EXTRA_DIST = \
     Defaults.plist \
     Info.plist \
     Transmission_Prefix.pch \
-    Growl.framework \
     Sparkle.framework \
     sparkle_dsa_pub.pem \
     TransmissionHelp \
@@ -96,6 +95,8 @@ EXTRA_DIST = \
     InfoTabButtonBack.m \
     InfoTabButtonCell.h \
     InfoTabButtonCell.m \
+    InfoTabMatrix.h \
+    InfoTabMatrix.m \
     InfoTextField.h \
     InfoTextField.m \
     InfoActivityViewController.h \

@@ -4,32 +4,71 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_SPEED_H
-#define QTR_SPEED_H
+#pragma once
 
 class Speed
 {
-  public:
-    Speed (): _Bps (0) {}
+public:
+    Speed() = default;
 
-    double KBps () const;
-    int Bps () const { return _Bps; }
-    bool isZero () const { return _Bps == 0; }
-    static Speed fromKBps (double KBps);
-    static Speed fromBps (int Bps) { return Speed (Bps); }
-    void setBps (int Bps) { _Bps = Bps; }
-    Speed& operator+= (const Speed& that) { _Bps += that._Bps; return *this; }
-    Speed operator+ (const Speed& that) const { return Speed (_Bps + that._Bps); }
-    bool operator< (const Speed& that) const { return _Bps < that._Bps; }
+    double getKBps() const;
 
-  private:
-    Speed (int Bps): _Bps (Bps) {}
+    [[nodiscard]] int getBps() const
+    {
+        return bytes_per_second_;
+    }
 
-  private:
-    int _Bps;
+    [[nodiscard]] bool isZero() const
+    {
+        return bytes_per_second_ == 0;
+    }
+
+    static Speed fromKBps(double KBps);
+
+    static Speed fromBps(int Bps)
+    {
+        return Speed{ Bps };
+    }
+
+    void setBps(int Bps)
+    {
+        bytes_per_second_ = Bps;
+    }
+
+    Speed& operator +=(Speed const& that)
+    {
+        bytes_per_second_ += that.bytes_per_second_;
+        return *this;
+    }
+
+    [[nodiscard]] Speed operator +(Speed const& that) const
+    {
+        return Speed{ getBps() + that.getBps() };
+    }
+
+    [[nodiscard]] bool operator <(Speed const& that) const
+    {
+        return getBps() < that.getBps();
+    }
+
+    [[nodiscard]] bool operator ==(Speed const& that) const
+    {
+        return getBps() == that.getBps();
+    }
+
+    [[nodiscard]] bool operator !=(Speed const& that) const
+    {
+        return getBps() != that.getBps();
+    }
+
+private:
+    explicit Speed(int bytes_per_second) :
+        bytes_per_second_{bytes_per_second}
+    {
+    }
+
+private:
+    int bytes_per_second_ = {};
 };
-
-#endif // QTR_SPEED_H

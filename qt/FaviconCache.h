@@ -4,54 +4,57 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_FAVICON_CACHE_H
-#define QTR_FAVICON_CACHE_H
+#pragma once
 
-#include <QMap>
-#include <QString>
+#include <unordered_map>
+#include <vector>
+
 #include <QObject>
 #include <QPixmap>
+#include <QString>
+
+#include "Macros.h"
+#include "Utils.h" // std::hash<QString>
 
 class QNetworkAccessManager;
 class QNetworkReply;
 class QUrl;
 
-class FaviconCache: public QObject
+class FaviconCache : public QObject
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(FaviconCache)
 
-  public:
-    FaviconCache ();
-    virtual ~FaviconCache ();
+public:
+    FaviconCache();
+
+    using Key = QString;
+    using Keys = std::vector<Key>;
 
     // returns a cached pixmap, or a NULL pixmap if there's no match in the cache
-    QPixmap find (const QUrl& url);
+    QPixmap find(Key const& key);
 
-    // returns a cached pixmap, or a NULL pixmap if there's no match in the cache
-    QPixmap findFromHost (const QString& host);
+    static Key getKey(QString const& display_name);
 
-    // this will emit a signal when (if) the icon becomes ready
-    void add (const QUrl& url);
+    // This will emit a signal when (if) the icon becomes ready.
+    Key add(QString const& url);
 
-    static QString getHost (const QUrl& url);
-    static QSize getIconSize ();
+    static QString getDisplayName(Key const& key);
+    static QSize getIconSize();
 
-  signals:
-    void pixmapReady (const QString& host);
+signals:
+    void pixmapReady(Key const& key);
 
-  private:
-    QString getCacheDir ();
-    void ensureCacheDirHasBeenScanned ();
+private slots:
+    void onRequestFinished(QNetworkReply* reply);
 
-  private slots:
-    void onRequestFinished (QNetworkReply * reply);
+private:
+    static Key getKey(QUrl const& url);
+    void ensureCacheDirHasBeenScanned();
 
-  private:
-    QNetworkAccessManager * myNAM;
-    QMap<QString, QPixmap> myPixmaps;
+    QNetworkAccessManager* nam_ = {};
+    std::unordered_map<Key, QPixmap> pixmaps_;
+    std::unordered_map<QString, Key> keys_;
 };
-
-#endif // QTR_FAVICON_CACHE_H

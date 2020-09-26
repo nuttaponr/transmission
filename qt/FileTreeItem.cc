@@ -4,10 +4,10 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 
 #include <QApplication>
@@ -18,366 +18,413 @@
 #include "FileTreeItem.h"
 #include "FileTreeModel.h"
 #include "Formatter.h"
-#include "Utils.h" // mime icons
+#include "IconCache.h"
 
-const QHash<QString,int>&
-FileTreeItem::getMyChildRows ()
+QHash<QString, int> const& FileTreeItem::getMyChildRows()
 {
-  const size_t n = childCount();
+    size_t const n = childCount();
 
-  // ensure that all the rows are hashed
-  while (myFirstUnhashedRow < n)
+    // ensure that all the rows are hashed
+    while (first_unhashed_row_ < n)
     {
-      myChildRows.insert (myChildren[myFirstUnhashedRow]->name(),
-                          myFirstUnhashedRow);
-      ++myFirstUnhashedRow;
+        child_rows_.insert(children_[first_unhashed_row_]->name(), first_unhashed_row_);
+        ++first_unhashed_row_;
     }
 
-  return myChildRows;
+    return child_rows_;
 }
 
-
-FileTreeItem::~FileTreeItem ()
+FileTreeItem::~FileTreeItem()
 {
-  assert(myChildren.isEmpty());
+    assert(children_.isEmpty());
 
-  if (myParent != 0)
+    if (parent_ != nullptr)
     {
-      const int pos = row();
-      assert ((pos>=0) && "couldn't find child in parent's lookup");
-      myParent->myChildren.removeAt(pos);
-      myParent->myChildRows.remove(name());
-      myParent->myFirstUnhashedRow = pos;
+        int const pos = row();
+        assert(pos >= 0 && "couldn't find child in parent's lookup");
+        parent_->children_.removeAt(pos);
+        parent_->child_rows_.remove(name());
+        parent_->first_unhashed_row_ = pos;
     }
 }
 
-void
-FileTreeItem::appendChild (FileTreeItem * child)
+void FileTreeItem::appendChild(FileTreeItem* child)
 {
-  const size_t n = childCount();
-  child->myParent = this;
-  myChildren.append (child);
-  myFirstUnhashedRow = n;
+    size_t const n = childCount();
+    child->parent_ = this;
+    children_.append(child);
+    first_unhashed_row_ = n;
 }
 
-FileTreeItem *
-FileTreeItem::child (const QString& filename)
+FileTreeItem* FileTreeItem::child(QString const& filename)
 {
-  FileTreeItem * item(0);
+    FileTreeItem* item(nullptr);
 
-  const int row = getMyChildRows().value (filename, -1);
-  if (row != -1)
+    int const row = getMyChildRows().value(filename, -1);
+
+    if (row != -1)
     {
-      item = child (row);
-      assert (filename == item->name());
+        item = child(row);
+        assert(filename == item->name());
     }
 
-  return item;
+    return item;
 }
 
-int
-FileTreeItem::row () const
+int FileTreeItem::row() const
 {
-  int i(-1);
+    int i(-1);
 
-  if(myParent)
+    if (parent_ != nullptr)
     {
-      i = myParent->getMyChildRows().value (name(), -1);
-      assert (this == myParent->myChildren[i]);
+        i = parent_->getMyChildRows().value(name(), -1);
+        assert(this == parent_->children_[i]);
     }
 
-  return i;
+    return i;
 }
 
-QVariant
-FileTreeItem::data (int column, int role) const
+QVariant FileTreeItem::data(int column, int role) const
 {
-  QVariant value;
+    QVariant value;
 
-  switch (role)
+    switch (role)
     {
-      case FileTreeModel::FileIndexRole:
-        value.setValue (myFileIndex);
+    case FileTreeModel::FileIndexRole:
+        value.setValue(file_index_);
         break;
 
-      case FileTreeModel::WantedRole:
-        value.setValue (isSubtreeWanted ());
+    case FileTreeModel::WantedRole:
+        value.setValue(isSubtreeWanted());
         break;
 
-      case FileTreeModel::CompleteRole:
-        value.setValue (isComplete ());
+    case FileTreeModel::CompleteRole:
+        value.setValue(isComplete());
         break;
 
-      case Qt::EditRole:
+    case Qt::ToolTipRole:
+    case Qt::EditRole:
         if (column == FileTreeModel::COL_NAME)
-          value.setValue (name ());
+        {
+            value.setValue(name());
+        }
+
         break;
 
-      case Qt::TextAlignmentRole:
+    case Qt::TextAlignmentRole:
         if (column == FileTreeModel::COL_SIZE)
-          value = Qt::AlignRight + Qt::AlignVCenter;
+        {
+            value = Qt::AlignRight + Qt::AlignVCenter;
+        }
+
         break;
 
-      case Qt::DisplayRole:
-      case FileTreeModel::SortRole:
+    case Qt::DisplayRole:
+    case FileTreeModel::SortRole:
         switch (column)
-          {
-            case FileTreeModel::COL_NAME:
-              value.setValue (name ());
-              break;
+        {
+        case FileTreeModel::COL_NAME:
+            value.setValue(name());
+            break;
 
-            case FileTreeModel::COL_SIZE:
-              if (role == Qt::DisplayRole)
-                value.setValue (sizeString ());
-              else
-                value.setValue<quint64> (size ());
-              break;
-
-            case FileTreeModel::COL_PROGRESS:
-              value.setValue (progress ());
-              break;
-
-            case FileTreeModel::COL_WANTED:
-              value.setValue (isSubtreeWanted ());
-              break;
-
-            case FileTreeModel::COL_PRIORITY:
-              if (role == Qt::DisplayRole)
-                value.setValue (priorityString ());
-              else
-                value.setValue (priority ());
-              break;
-          }
-        break;
-
-      case Qt::DecorationRole:
-        if (column == FileTreeModel::COL_NAME)
-          {
-            if (myFileIndex < 0)
-              value = qApp->style ()->standardIcon (QStyle::SP_DirOpenIcon);
+        case FileTreeModel::COL_SIZE:
+            if (role == Qt::DisplayRole)
+            {
+                value.setValue(sizeString());
+            }
             else
-              value = Utils::guessMimeIcon (name ());
-          }
+            {
+                value.setValue<quint64>(size());
+            }
+
+            break;
+
+        case FileTreeModel::COL_PROGRESS:
+            value.setValue(progress());
+            break;
+
+        case FileTreeModel::COL_WANTED:
+            value.setValue(isSubtreeWanted());
+            break;
+
+        case FileTreeModel::COL_PRIORITY:
+            if (role == Qt::DisplayRole)
+            {
+                value.setValue(priorityString());
+            }
+            else
+            {
+                value.setValue(priority());
+            }
+
+            break;
+        }
+
+        break;
+
+    case Qt::DecorationRole:
+        if (column == FileTreeModel::COL_NAME)
+        {
+            if (file_index_ < 0)
+            {
+                value = qApp->style()->standardIcon(QStyle::SP_DirOpenIcon);
+            }
+            else
+            {
+                auto& icon_cache = IconCache::get();
+                value = childCount() > 0 ?
+                    icon_cache.folderIcon() :
+                    icon_cache.guessMimeIcon(name(), icon_cache.fileIcon());
+            }
+        }
+
         break;
     }
 
-  return value;
+    return value;
 }
 
-void
-FileTreeItem::getSubtreeWantedSize (uint64_t& have, uint64_t& total) const
+void FileTreeItem::getSubtreeWantedSize(uint64_t& have, uint64_t& total) const
 {
-  if (myIsWanted)
+    if (is_wanted_)
     {
-      have += myHaveSize;
-      total += myTotalSize;
+        have += have_size_;
+        total += total_size_;
     }
 
-  for (const FileTreeItem * const i: myChildren)
-    i->getSubtreeWantedSize(have, total);
-}
-
-double
-FileTreeItem::progress () const
-{
-  double d(0);
-  uint64_t have(0), total(0);
-
-  getSubtreeWantedSize (have, total);
-  if (total)
-    d = have / double(total);
-
-  return d;
-}
-
-QString
-FileTreeItem::sizeString () const
-{
-  return Formatter::sizeToString (size ());
-}
-
-uint64_t
-FileTreeItem::size () const
-{
-  if (myChildren.isEmpty())
-    return myTotalSize;
-
-  uint64_t have = 0;
-  uint64_t total = 0;
-  getSubtreeWantedSize (have, total);
-  return total;
-}
-
-std::pair<int,int>
-FileTreeItem::update (const QString& name,
-                      bool           wanted,
-                      int            priority,
-                      uint64_t       haveSize,
-                      bool           updateFields)
-{
-  int changed_count = 0;
-  int changed_columns[4];
-
-  if (myName != name)
+    for (FileTreeItem const* const i : children_)
     {
-      if (myParent)
-        myParent->myFirstUnhashedRow = row();
+        i->getSubtreeWantedSize(have, total);
+    }
+}
 
-      myName = name;
-      changed_columns[changed_count++] = FileTreeModel::COL_NAME;
+double FileTreeItem::progress() const
+{
+    double d(0);
+    uint64_t have(0);
+    uint64_t total(0);
+
+    getSubtreeWantedSize(have, total);
+
+    if (total != 0)
+    {
+        d = static_cast<double>(have) / static_cast<double>(total);
     }
 
-  if (fileIndex () != -1)
+    return d;
+}
+
+QString FileTreeItem::sizeString() const
+{
+    return Formatter::get().sizeToString(size());
+}
+
+uint64_t FileTreeItem::size() const
+{
+    if (children_.isEmpty())
     {
-      if (myHaveSize != haveSize)
+        return total_size_;
+    }
+
+    uint64_t have = 0;
+    uint64_t total = 0;
+    getSubtreeWantedSize(have, total);
+    return total;
+}
+
+std::pair<int, int> FileTreeItem::update(QString const& name, bool wanted, int priority, uint64_t have_size, bool update_fields)
+{
+    int changed_count = 0;
+    std::array<int, FileTreeModel::NUM_COLUMNS> changed_columns = {};
+
+    if (name_ != name)
+    {
+        if (parent_ != nullptr)
         {
-          myHaveSize = haveSize;
-          changed_columns[changed_count++] = FileTreeModel::COL_PROGRESS;
+            parent_->first_unhashed_row_ = row();
         }
 
-      if (updateFields)
+        name_ = name;
+        changed_columns[changed_count++] = FileTreeModel::COL_NAME;
+    }
+
+    if (fileIndex() != -1)
+    {
+        if (have_size_ != have_size)
         {
-          if (myIsWanted != wanted)
+            have_size_ = have_size;
+            changed_columns[changed_count++] = FileTreeModel::COL_PROGRESS;
+        }
+
+        if (update_fields)
+        {
+            if (is_wanted_ != wanted)
             {
-              myIsWanted = wanted;
-              changed_columns[changed_count++] = FileTreeModel::COL_WANTED;
+                is_wanted_ = wanted;
+                changed_columns[changed_count++] = FileTreeModel::COL_WANTED;
             }
 
-          if (myPriority != priority)
+            if (priority_ != priority)
             {
-              myPriority = priority;
-              changed_columns[changed_count++] = FileTreeModel::COL_PRIORITY;
+                priority_ = priority;
+                changed_columns[changed_count++] = FileTreeModel::COL_PRIORITY;
             }
         }
     }
 
-  std::pair<int,int> changed (-1, -1);
-  if (changed_count > 0)
+    std::pair<int, int> changed(-1, -1);
+
+    if (changed_count > 0)
     {
-      std::sort (changed_columns, changed_columns+changed_count);
-      changed.first = changed_columns[0];
-      changed.second = changed_columns[changed_count-1];
+        std::sort(changed_columns.begin(), changed_columns.end());
+        changed.first = changed_columns.front();
+        changed.second = changed_columns.back();
     }
-  return changed;
+
+    return changed;
 }
 
-QString
-FileTreeItem::priorityString () const
+QString FileTreeItem::priorityString() const
 {
-  const int i = priority();
+    int const i = priority();
 
-  switch (i)
+    switch (i)
     {
-      case LOW:    return tr("Low");
-      case HIGH:   return tr("High");
-      case NORMAL: return tr("Normal");
-      default:     return tr("Mixed");
+    case LOW:
+        return tr("Low");
+
+    case HIGH:
+        return tr("High");
+
+    case NORMAL:
+        return tr("Normal");
+
+    default:
+        return tr("Mixed");
     }
 }
 
-int
-FileTreeItem::priority () const
+int FileTreeItem::priority() const
 {
-  int i(0);
+    int i(0);
 
-  if (myChildren.isEmpty())
+    if (children_.isEmpty())
     {
-      switch (myPriority)
+        switch (priority_)
         {
-          case TR_PRI_LOW:
+        case TR_PRI_LOW:
             i |= LOW;
             break;
 
-          case TR_PRI_HIGH:
+        case TR_PRI_HIGH:
             i |= HIGH;
             break;
 
-          default:
+        default:
             i |= NORMAL;
             break;
         }
     }
 
-  for (const FileTreeItem * const child: myChildren)
-    i |= child->priority();
-
-  return i;
-}
-
-void
-FileTreeItem::setSubtreePriority (int i, QSet<int>& ids)
-{
-  if (myPriority != i)
+    for (FileTreeItem const* const child : children_)
     {
-      myPriority = i;
-
-      if (myFileIndex >= 0)
-        ids.insert (myFileIndex);
+        i |= child->priority();
     }
 
-  for (FileTreeItem * const child: myChildren)
-    child->setSubtreePriority (i, ids);
+    return i;
 }
 
-int
-FileTreeItem::isSubtreeWanted () const
+void FileTreeItem::setSubtreePriority(int i, QSet<int>& ids)
 {
-  if(myChildren.isEmpty())
-    return myIsWanted ? Qt::Checked : Qt::Unchecked;
-
-  int wanted(-1);
-  for (const FileTreeItem * const child: myChildren)
+    if (priority_ != i)
     {
-      const int childWanted = child->isSubtreeWanted();
+        priority_ = i;
 
-      if (wanted == -1)
-        wanted = childWanted;
-
-      if (wanted != childWanted)
-        wanted = Qt::PartiallyChecked;
-
-      if (wanted == Qt::PartiallyChecked)
-        return wanted;
+        if (file_index_ >= 0)
+        {
+            ids.insert(file_index_);
+        }
     }
 
-  return wanted;
+    for (FileTreeItem* const child : children_)
+    {
+        child->setSubtreePriority(i, ids);
+    }
 }
 
-void
-FileTreeItem::setSubtreeWanted (bool b, QSet<int>& ids)
+int FileTreeItem::isSubtreeWanted() const
 {
-  if (myIsWanted != b)
+    if (children_.isEmpty())
     {
-      myIsWanted = b;
-
-      if (myFileIndex >= 0)
-        ids.insert(myFileIndex);
+        return is_wanted_ ? Qt::Checked : Qt::Unchecked;
     }
 
-  for (FileTreeItem * const child: myChildren)
-    child->setSubtreeWanted (b, ids);
-}
+    int wanted(-1);
 
-QString
-FileTreeItem::path () const
-{
-  QString itemPath;
-  const FileTreeItem * item = this;
-
-  while (item != NULL && !item->name().isEmpty())
+    for (FileTreeItem const* const child : children_)
     {
-      if (itemPath.isEmpty())
-        itemPath = item->name();
-      else
-        itemPath = item->name() + QLatin1Char ('/') + itemPath;
-      item = item->parent ();
+        int const child_wanted = child->isSubtreeWanted();
+
+        if (wanted == -1)
+        {
+            wanted = child_wanted;
+        }
+
+        if (wanted != child_wanted)
+        {
+            wanted = Qt::PartiallyChecked;
+        }
+
+        if (wanted == Qt::PartiallyChecked)
+        {
+            return wanted;
+        }
     }
 
-  return itemPath;
+    return wanted;
 }
 
-bool
-FileTreeItem::isComplete () const
+void FileTreeItem::setSubtreeWanted(bool b, QSet<int>& ids)
 {
-  return myHaveSize == totalSize ();
+    if (is_wanted_ != b)
+    {
+        is_wanted_ = b;
+
+        if (file_index_ >= 0)
+        {
+            ids.insert(file_index_);
+        }
+    }
+
+    for (FileTreeItem* const child : children_)
+    {
+        child->setSubtreeWanted(b, ids);
+    }
+}
+
+QString FileTreeItem::path() const
+{
+    QString item_path;
+    FileTreeItem const* item = this;
+
+    while (item != nullptr && !item->name().isEmpty())
+    {
+        if (item_path.isEmpty())
+        {
+            item_path = item->name();
+        }
+        else
+        {
+            item_path = item->name() + QLatin1Char('/') + item_path;
+        }
+
+        item = item->parent();
+    }
+
+    return item_path;
+}
+
+bool FileTreeItem::isComplete() const
+{
+    return have_size_ == totalSize();
 }

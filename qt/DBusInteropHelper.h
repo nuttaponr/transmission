@@ -4,11 +4,9 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_DBUS_INTEROP_HELPER_H
-#define QTR_DBUS_INTEROP_HELPER_H
+#pragma once
 
 class QObject;
 class QString;
@@ -16,12 +14,12 @@ class QVariant;
 
 class DBusInteropHelper
 {
-  public:
-    bool isConnected () const;
+public:
+    DBusInteropHelper() = default;
 
-    QVariant addMetainfo (const QString& metainfo);
+    bool isConnected() const;
 
-    static void registerObject (QObject * parent);
+    QVariant addMetainfo(QString const& metainfo);
+
+    static void registerObject(QObject* parent);
 };
-
-#endif // QTR_DBUS_INTEROP_HELPER_H

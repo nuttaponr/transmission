@@ -4,7 +4,6 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include <QApplication>
@@ -19,38 +18,34 @@
 #include "LicenseDialog.h"
 #include "Utils.h"
 
-AboutDialog::AboutDialog (QWidget * parent):
-  BaseDialog (parent),
-  myLicenseDialog ()
+AboutDialog::AboutDialog(QWidget* parent) :
+    BaseDialog(parent)
 {
-  ui.setupUi (this);
+    ui_.setupUi(this);
 
-  ui.iconLabel->setPixmap (qApp->windowIcon ().pixmap (48));
-  ui.titleLabel->setText (tr ("<b style='font-size:x-large'>Transmission %1</b>").arg (QString::fromUtf8 (LONG_VERSION_STRING)));
+    ui_.iconLabel->setPixmap(qApp->windowIcon().pixmap(48));
+    ui_.titleLabel->setText(tr("<b style='font-size:x-large'>Transmission %1</b>").arg(QStringLiteral(LONG_VERSION_STRING)));
 
-  QPushButton * b;
+    QPushButton* b;
 
-  b = ui.dialogButtons->addButton (tr ("C&redits"), QDialogButtonBox::ActionRole);
-  connect (b, SIGNAL (clicked ()), this, SLOT (showCredits ()));
+    b = ui_.dialogButtons->addButton(tr("C&redits"), QDialogButtonBox::ActionRole);
+    connect(b, SIGNAL(clicked()), this, SLOT(showCredits()));
 
-  b = ui.dialogButtons->addButton (tr ("&License"), QDialogButtonBox::ActionRole);
-  connect (b, SIGNAL (clicked ()), this, SLOT (showLicense ()));
+    b = ui_.dialogButtons->addButton(tr("&License"), QDialogButtonBox::ActionRole);
+    connect(b, SIGNAL(clicked()), this, SLOT(showLicense()));
 
-  ui.dialogButtons->button (QDialogButtonBox::Close)->setDefault (true);
+    ui_.dialogButtons->button(QDialogButtonBox::Close)->setDefault(true);
 }
 
-void
-AboutDialog::showCredits ()
+void AboutDialog::showCredits()
 {
-  QMessageBox::about (
-    this,
-    tr ("Credits"),
-    QString::fromUtf8 ("Jordan Lee (Backend; Daemon; GTK+; Qt)\n"
-                        "Michell Livingston (OS X)\n"));
+    QMessageBox::about(this, tr("Credits"), QString::fromUtf8(
+        "Charles Kerr (Backend; Daemon; GTK+; Qt)\n"
+        "Mitchell Livingston (OS X)\n"
+        "Mike Gelfand\n"));
 }
 
-void
-AboutDialog::showLicense ()
+void AboutDialog::showLicense()
 {
-  Utils::openDialog (myLicenseDialog, this);
+    Utils::openDialog(license_dialog_, this);
 }

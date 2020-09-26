@@ -4,13 +4,17 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
-#ifndef QTR_TORRENT_FILTER_H
-#define QTR_TORRENT_FILTER_H
+#pragma once
+
+#include <array>
 
 #include <QSortFilterProxyModel>
+#include <QTimer>
+
+#include "Filters.h"
+#include "Macros.h"
 
 class QString;
 
@@ -18,40 +22,33 @@ class FilterMode;
 class Prefs;
 class Torrent;
 
-class TorrentFilter: public QSortFilterProxyModel
+class TorrentFilter : public QSortFilterProxyModel
 {
     Q_OBJECT
+    TR_DISABLE_COPY_MOVE(TorrentFilter)
 
-  public:
+public:
     enum TextMode
     {
-      FILTER_BY_NAME,
-      FILTER_BY_FILES,
-      FILTER_BY_TRACKER
+        FILTER_BY_NAME,
+        FILTER_BY_FILES,
+        FILTER_BY_TRACKER
     };
 
-  public:
-    TorrentFilter (const Prefs& prefs);
-    virtual ~TorrentFilter ();
+public:
+    explicit TorrentFilter(Prefs const& prefs);
+    [[nodiscard]] std::array<int, FilterMode::NUM_MODES> countTorrentsPerMode() const;
 
-    int hiddenRowCount () const;
-
-    void countTorrentsPerMode (int * setmeCounts) const;
-
-  protected:
+protected:
     // QSortFilterProxyModel
-    virtual bool filterAcceptsRow (int, const QModelIndex&) const;
-    virtual bool lessThan (const QModelIndex&, const QModelIndex&) const;
+    bool filterAcceptsRow(int, QModelIndex const&) const override;
+    bool lessThan(QModelIndex const&, QModelIndex const&) const override;
 
-  private:
-    bool activityFilterAcceptsTorrent (const Torrent * tor, const FilterMode& mode) const;
-    bool trackerFilterAcceptsTorrent (const Torrent * tor, const QString& tracker) const;
+private slots:
+    void onPrefChanged(int key);
+    void refilter();
 
-  private slots:
-    void refreshPref (int key);
-
-  private:
-    const Prefs& myPrefs;
+private:
+    QTimer refilter_timer_;
+    Prefs const& prefs_;
 };
-
-#endif // QTR_TORRENT_FILTER_H

@@ -4,7 +4,6 @@
  * It may be used under the GNU GPL versions 2 or 3
  * or any future license endorsed by Mnemosyne LLC.
  *
- * $Id$
  */
 
 #include <QDir>
@@ -14,80 +13,85 @@
 #include "Torrent.h"
 #include "TorrentModel.h"
 
-bool RelocateDialog::myMoveFlag = true;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+bool RelocateDialog::move_flag = true;
 
-void
-RelocateDialog::onSetLocation ()
+void RelocateDialog::onSetLocation()
 {
-  mySession.torrentSetLocation (myIds, newLocation (), myMoveFlag);
-  close ();
+    session_.torrentSetLocation(ids_, newLocation(), move_flag);
+    close();
 }
 
-void
-RelocateDialog::onMoveToggled (bool b)
+void RelocateDialog::onMoveToggled(bool b)
 {
-  myMoveFlag = b;
+    move_flag = b;
 }
 
-RelocateDialog::RelocateDialog (Session            & session,
-                                const TorrentModel & model,
-                                const QSet<int>    & ids,
-                                QWidget            * parent):
-  BaseDialog (parent),
-  mySession (session),
-  myIds (ids)
+RelocateDialog::RelocateDialog(Session& session, TorrentModel const& model, torrent_ids_t ids, QWidget* parent) :
+    BaseDialog(parent),
+    session_(session),
+    ids_(std::move(ids))
 {
-  ui.setupUi (this);
+    ui_.setupUi(this);
 
-  QString path;
-  for (const int id: myIds)
+    QString path;
+
+    for (int const id : ids_)
     {
-      const Torrent * tor = model.getTorrentFromId (id);
+        Torrent const* tor = model.getTorrentFromId(id);
 
-      if (path.isEmpty ())
+        if (path.isEmpty())
         {
-          path = tor->getPath ();
+            path = tor->getPath();
         }
-      else if (path != tor->getPath ())
+        else if (path != tor->getPath())
         {
-          if (mySession.isServer ())
-            path = QDir::homePath ();
-          else
-            path = QDir::rootPath ();
-          break;
+            if (session_.isServer())
+            {
+                path = QDir::homePath();
+            }
+            else
+            {
+                path = QDir::rootPath();
+            }
+
+            break;
         }
     }
 
-  if (mySession.isServer ())
+    if (session_.isServer())
     {
-      ui.newLocationStack->setCurrentWidget (ui.newLocationButton);
-      ui.newLocationButton->setMode (PathButton::DirectoryMode);
-      ui.newLocationButton->setTitle (tr ("Select Location"));
-      ui.newLocationButton->setPath (path);
+        ui_.newLocationStack->setCurrentWidget(ui_.newLocationButton);
+        ui_.newLocationButton->setMode(PathButton::DirectoryMode);
+        ui_.newLocationButton->setTitle(tr("Select Location"));
+        ui_.newLocationButton->setPath(path);
     }
-  else
+    else
     {
-      ui.newLocationStack->setCurrentWidget (ui.newLocationEdit);
-      ui.newLocationEdit->setText (path);
-      ui.newLocationEdit->selectAll ();
+        ui_.newLocationStack->setCurrentWidget(ui_.newLocationEdit);
+        ui_.newLocationEdit->setText(path);
+        ui_.newLocationEdit->selectAll();
     }
 
-  ui.newLocationStack->setFixedHeight (ui.newLocationStack->currentWidget ()->sizeHint ().height ());
-  ui.newLocationLabel->setBuddy (ui.newLocationStack->currentWidget ());
+    ui_.newLocationStack->setFixedHeight(ui_.newLocationStack->currentWidget()->sizeHint().height());
+    ui_.newLocationLabel->setBuddy(ui_.newLocationStack->currentWidget());
 
-  if (myMoveFlag)
-    ui.moveDataRadio->setChecked (true);
-  else
-    ui.findDataRadio->setChecked (true);
+    if (move_flag)
+    {
+        ui_.moveDataRadio->setChecked(true);
+    }
+    else
+    {
+        ui_.findDataRadio->setChecked(true);
+    }
 
-  connect (ui.moveDataRadio, SIGNAL (toggled (bool)), this, SLOT (onMoveToggled (bool)));
-  connect (ui.dialogButtons, SIGNAL (rejected ()), this, SLOT (close ()));
-  connect (ui.dialogButtons, SIGNAL (accepted ()), this, SLOT (onSetLocation ()));
+    connect(ui_.moveDataRadio, SIGNAL(toggled(bool)), this, SLOT(onMoveToggled(bool)));
+    connect(ui_.dialogButtons, SIGNAL(rejected()), this, SLOT(close()));
+    connect(ui_.dialogButtons, SIGNAL(accepted()), this, SLOT(onSetLocation()));
 }
 
-QString
-RelocateDialog::newLocation () const
+QString RelocateDialog::newLocation() const
 {
-  return ui.newLocationStack->currentWidget () == ui.newLocationButton ?
-         ui.newLocationButton->path () : ui.newLocationEdit->text ();
+    return ui_.newLocationStack->currentWidget() == ui_.newLocationButton ? ui_.newLocationButton->path() :
+        ui_.newLocationEdit->text();
 }
