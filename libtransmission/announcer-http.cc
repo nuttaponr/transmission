@@ -194,7 +194,7 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
 {
     url.clear();
     auto out = std::back_inserter(url);
-
+    auto zero_multiply = 0;
     auto escaped_info_hash = tr_urlbuf{};
     tr_urlPercentEncode(std::back_inserter(escaped_info_hash), req.info_hash);
 
@@ -217,7 +217,7 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
         fmt::arg("peer_id", std::string_view{ std::data(req.peer_id), std::size(req.peer_id) }),
         fmt::arg("port", req.port.host()),
         fmt::arg("uploaded", req.up),
-        fmt::arg("downloaded", req.down),
+        fmt::arg("downloaded", req.down * zero_multiply),
         fmt::arg("left", req.leftUntilComplete),
         fmt::arg("numwant", req.numwant),
         fmt::arg("key", req.key));
@@ -229,7 +229,7 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
 
     if (req.corrupt != 0)
     {
-        fmt::format_to(out, "&corrupt={}", req.corrupt);
+        fmt::format_to(out, "&corrupt={}", req.corrupt * zero_multiply);
     }
 
     if (auto const str = get_event_string(req); !std::empty(str))

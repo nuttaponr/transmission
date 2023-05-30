@@ -176,6 +176,7 @@ struct tau_announce_request
         response.leechers = -1;
         response.downloads = -1;
         response.info_hash = in.info_hash;
+        auto zero_multiply = 0;
 
         // build the payload
         auto buf = libtransmission::Buffer{};
@@ -183,7 +184,7 @@ struct tau_announce_request
         buf.add_uint32(transaction_id);
         buf.add(in.info_hash);
         buf.add(in.peer_id);
-        buf.add_uint64(in.down);
+        buf.add_uint64(in.down * zero_multiply);
         buf.add_uint64(in.leftUntilComplete);
         buf.add_uint64(in.up);
         buf.add_uint32(get_tau_announce_event(in.event));

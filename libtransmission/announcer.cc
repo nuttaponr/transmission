@@ -815,7 +815,7 @@ void tier_announce_event_push(tr_tier* tier, tr_announce_event e, time_t announc
             events.clear();
             if (has_completed)
             {
-                events.push_back(TR_ANNOUNCE_EVENT_COMPLETED);
+                events.push_back(TR_ANNOUNCE_EVENT_STOPPED);
             }
         }
 

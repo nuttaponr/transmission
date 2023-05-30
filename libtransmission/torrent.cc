@@ -870,8 +870,14 @@ void torrentStop(tr_torrent* const tor)
 
     tor->session->verifyRemove(tor);
 
+    // tr_peerMgrStopTorrent(tor);
+    // tor->session->announcer_->stopTorrent(tor);
+    const bool wasQueued = tor -> isQueued();
+    torrentSetQueued(tor, false);
     tr_peerMgrStopTorrent(tor);
-    tor->session->announcer_->stopTorrent(tor);
+    if(!wasQueued){
+        tor->session->announcer_->stopTorrent(tor);
+    }
 
     tor->session->closeTorrentFiles(tor);
 
