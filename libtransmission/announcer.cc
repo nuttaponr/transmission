@@ -822,28 +822,29 @@ void tier_announce_event_push(tr_tier* tier, tr_announce_event e, time_t announc
 {
     TR_ASSERT(tier != nullptr);
 
+    if (e == TR_ANNOUNCE_EVENT_COMPLETED)
+    {
+        tr_logAddTrace_tier_announce_queue(tier);
+        tr_logAddTraceTier(tier, fmt::format("ignored '{}'", tr_announce_event_get_string(e)));
+        return;
+    }
+
     tr_logAddTrace_tier_announce_queue(tier);
     tr_logAddTraceTier(tier, fmt::format("queued '{}'", tr_announce_event_get_string(e)));
 
     auto& events = tier->announce_events;
     if (!std::empty(events))
     {
-        /* special case #1: if we're adding a "stopped" event,
-         * dump everything leading up to it except "completed" */
+        // Purge any lingering 'Completed' events that might have bypassed earlier logic
+        events.erase(std::remove(events.begin(), events.end(), TR_ANNOUNCE_EVENT_COMPLETED), events.end());
+
+        // If stopping, clear the entire queue unconditionally
         if (e == TR_ANNOUNCE_EVENT_STOPPED)
         {
-            auto const has_completed = std::ranges::find(events, TR_ANNOUNCE_EVENT_COMPLETED) != std::ranges::end(events);
             events.clear();
-            if (has_completed)
-            {
-                events.push_back(TR_ANNOUNCE_EVENT_COMPLETED);
-            }
         }
 
-        /* special case #2: dump all empty strings leading up to this event */
         tier_announce_remove_trailing(tier, TR_ANNOUNCE_EVENT_NONE);
-
-        /* special case #3: no consecutive duplicates */
         tier_announce_remove_trailing(tier, e);
     }
 
@@ -927,17 +928,20 @@ void on_announce_error(tr_tier* tier, std::string_view err, tr_announce_event e,
 {
     auto const* const current_tracker = tier->currentTracker();
     TR_ASSERT(current_tracker != nullptr);
+    uint64_t const zero_down = 0ULL;
+    //auto leftUntilComplete = tor->has_metainfo() ? tor->total_size() - tor->has_total() : INT64_MAX;
+    auto leftUntilComplete = tor->has_metainfo() ? tor->total_size() : INT64_MAX;
 
     return {
-        .event = event,
+        .event = (event == TR_ANNOUNCE_EVENT_COMPLETED) ? TR_ANNOUNCE_EVENT_NONE : event,
         .partial_seed = tor->is_partial_seed(),
         .port = announcer->session->advertisedPeerPort(),
         .key = tor->announce_key(),
         .numwant = event == TR_ANNOUNCE_EVENT_STOPPED ? 0 : Numwant,
         .up = tier->byteCounts[TR_ANN_UP],
-        .down = tier->byteCounts[TR_ANN_DOWN],
+        .down = zero_down,
         .corrupt = tier->byteCounts[TR_ANN_CORRUPT],
-        .leftUntilComplete = tor->has_metainfo() ? tor->total_size() - tor->has_total() : INT64_MAX,
+        .leftUntilComplete = leftUntilComplete,
         .announce_url = current_tracker->announce_url,
         .tracker_id = current_tracker->tracker_id,
         .peer_id = tor->peer_id(),
@@ -1184,7 +1188,7 @@ void tr_announcer_impl::stopTorrent(tr_torrent* tor)
 
 void tr_announcerTorrentCompleted(tr_torrent* tor)
 {
-    torrentAddAnnounce(tor, TR_ANNOUNCE_EVENT_COMPLETED, tr_time());
+    //torrentAddAnnounce(tor, TR_ANNOUNCE_EVENT_COMPLETED, tr_time());
 }
 
 void tr_announcerChangeMyPort(tr_torrent* tor)

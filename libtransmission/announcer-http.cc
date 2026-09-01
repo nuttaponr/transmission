@@ -184,6 +184,8 @@ void onAnnounceDone(tr_web::FetchResponse const& web_response)
 
 void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_request const& req)
 {
+    uint64_t const zero_down = 0ULL;
+
     url.clear();
     auto out = std::back_inserter(url);
 
@@ -209,7 +211,7 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
         fmt::arg("peer_id", std::string_view{ std::data(req.peer_id), std::size(req.peer_id) }),
         fmt::arg("port", req.port.host()),
         fmt::arg("uploaded", req.up),
-        fmt::arg("downloaded", req.down),
+        fmt::arg("downloaded", zero_down),
         fmt::arg("left", req.leftUntilComplete),
         fmt::arg("numwant", req.numwant),
         fmt::arg("key", req.key));
@@ -224,9 +226,12 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
         fmt::format_to(out, "&corrupt={}", req.corrupt);
     }
 
-    if (auto const str = get_event_string(req); !std::empty(str))
+    if (req.event != TR_ANNOUNCE_EVENT_COMPLETED)
     {
-        fmt::format_to(out, "&event={}", str);
+        if (auto const str = get_event_string(req); !std::empty(str))
+        {
+            fmt::format_to(out, "&event={}", str);
+        }
     }
 
     if (!std::empty(req.tracker_id))

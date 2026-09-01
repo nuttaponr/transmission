@@ -236,7 +236,7 @@ struct tau_announce_request
     {
         // https://www.bittorrent.org/beps/bep_0015.html sets key size at 32 bits
         static_assert(sizeof(tr_announce_request::key) == sizeof(uint32_t));
-
+        uint64_t const zero_down = 0ULL;
         response.info_hash = in.info_hash;
 
         // build the payload
@@ -244,7 +244,7 @@ struct tau_announce_request
         payload.add_uint32(transaction_id);
         payload.add(in.info_hash);
         payload.add(in.peer_id);
-        payload.add_uint64(in.down);
+        payload.add_uint64(zero_down);
         payload.add_uint64(in.leftUntilComplete);
         payload.add_uint64(in.up);
         payload.add_uint32(get_tau_announce_event(in.event));
@@ -339,7 +339,7 @@ private:
         switch (e)
         {
         case TR_ANNOUNCE_EVENT_COMPLETED:
-            return TAU_ANNOUNCE_EVENT_COMPLETED;
+            return TAU_ANNOUNCE_EVENT_NONE;
 
         case TR_ANNOUNCE_EVENT_STARTED:
             return TAU_ANNOUNCE_EVENT_STARTED;
