@@ -1,0 +1,385 @@
+From 41ae6d223313158173fad4ae8fd434c01fd5b1df Mon Sep 17 00:00:00 2001
+From: nuttaponr <you@example.com>
+Date: Tue, 1 Sep 2026 17:03:43 +0700
+Subject: [PATCH] main brach mod
+
+main brach mod
+
+fix ;
+
+try to fix
+
+fix some logic
+
+avoid send completed event tcp/udp and leftUntilComplete = total size
+---
+ Dockerfile                        |  31 +++++++++
+ Dockerfile.builder                |  43 ++++++++++++
+ README.md                         | 110 ++++++------------------------
+ libtransmission/announcer-http.cc |  11 ++-
+ libtransmission/announcer-udp.cc  |   6 +-
+ libtransmission/announcer.cc      |  32 +++++----
+ 6 files changed, 122 insertions(+), 111 deletions(-)
+ create mode 100644 Dockerfile
+ create mode 100644 Dockerfile.builder
+
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 000000000..918b8c252
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,31 @@
++# Stage 1: Build Environment
++FROM transmission:builder AS builder
++
++# Stage 2: Minimal Runtime Environment
++FROM alpine:latest
++
++ENV TRANSMISSION_WEB_HOME=/usr/local/share/transmission
++
++# Install only the required runtime libraries
++RUN apk add --no-cache \
++    libevent \
++    curl \
++    openssl \
++    miniupnpc \
++    libnatpmp \
++    zlib \
++    libstdc++ \
++    libgcc
++
++# Copy compiled binaries and the updated Web UI from the builder stage
++COPY --from=builder /usr/local/bin/transmission-* /usr/local/bin/
++COPY --from=builder /usr/local/share/transmission/web /usr/local/share/transmission
++
++# Expose standard Web UI and Peer listening ports
++EXPOSE 9091 51413/tcp 51413/udp
++
++# Set up volumes for persistent configuration and downloads
++VOLUME ["/config", "/downloads"]
++
++# Start the daemon in the foreground
++ENTRYPOINT ["transmission-daemon", "--foreground", "--config-dir", "/config"]
+\ No newline at end of file
+diff --git a/Dockerfile.builder b/Dockerfile.builder
+new file mode 100644
+index 000000000..e1b1c9fc9
+--- /dev/null
++++ b/Dockerfile.builder
+@@ -0,0 +1,43 @@
++# Stage 1: Build Environment
++FROM alpine:latest AS builder
++
++# Install necessary build dependencies for Transmission
++RUN apk add --no-cache \
++    build-base \
++    cmake \
++    git \
++    libevent-dev \
++    curl-dev \
++    openssl-dev \
++    zlib-dev \
++    linux-headers \
++    miniupnpc-dev \
++    libnatpmp-dev
++
++
++# Fetch and replace the default Web UI
++WORKDIR /tmp
++RUN mkdir -p /usr/local/share/transmission/web/ 
++RUN git clone https://github.com/ronggang/transmission-web-control.git && \
++    cp -r transmission-web-control/src/* /usr/local/share/transmission/web/    
++
++# Set up source directory and copy the local Transmission tree
++WORKDIR /src
++COPY . .
++
++RUN git config --global --add safe.directory /src && \
++    git submodule update --init --recursive
++
++# Configure and compile Transmission (Daemon and CLI)
++WORKDIR /src/build
++
++RUN cmake -DCMAKE_BUILD_TYPE=Release \
++          -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-error" \
++          -DCMAKE_C_FLAGS="-Wno-maybe-uninitialized -Wno-error" \
++          -DENABLE_DAEMON=ON \
++          -DENABLE_MAC=OFF \
++          -DENABLE_QT=OFF \
++          -DENABLE_GTK=OFF \
++          -DENABLE_CLI=ON .. && \
++    make -j$(nproc) && \
++    make install
+diff --git a/README.md b/README.md
+index 65d4eff39..926920584 100644
+--- a/README.md
++++ b/README.md
+@@ -1,101 +1,29 @@
+-## About
+-
+-Transmission is a fast, easy, and free BitTorrent client. It comes in several flavors:
+-  * A native macOS GUI application
+-  * GTK+ and Qt GUI applications for Linux, BSD, etc.
+-  * A Qt-based Windows-compatible GUI application
+-  * A headless daemon for servers and routers
+-  * A web UI for remote controlling any of the above
+-  
+-Visit https://transmissionbt.com/ for more information.
+-
+-## Documentation
+-
+-[Transmission's documentation](docs/README.md) is currently out-of-date, but the team has recently begun a new project to update it and is looking for volunteers. If you're interested, please feel free to submit pull requests!
+-
+-## Command line interface notes
+-
+-Transmission is fully supported in transmission-remote, the preferred cli client.
+-
+-Three standalone tools to examine, create, and edit .torrent files exist: transmission-show, transmission-create, and transmission-edit, respectively.
+-
+-Prior to development of transmission-remote, the standalone client transmission-cli was created. Limited to a single torrent at a time, transmission-cli is deprecated and exists primarily to support older hardware dependent upon it. In almost all instances, transmission-remote should be used instead.
+-
+-Different distributions may choose to package any or all of these tools in one or more separate packages.
++## About Custom Patches
++This transmission has been modified to announce that there are zero downloads.
+ 
+ ## Building
+-
+-Transmission has an Xcode project file (Transmission.xcodeproj) for building in Xcode.
+-
+-For a more detailed description, and dependencies, visit [How to Build Transmission](docs/Building-Transmission.md) in docs
+-
+-### Building a Transmission release from the command line
+-
+-```bash
+-$ tar xf transmission-4.1.0.tar.xz
+-$ cd transmission-4.1.0
+-# Use -DCMAKE_BUILD_TYPE=RelWithDebInfo to build optimized binary with debug information. (preferred)
+-# Use -DCMAKE_BUILD_TYPE=Release to build full optimized binary.
+-$ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+-$ cd build
+-$ cmake --build .
+-$ sudo cmake --install .
+ ```
+-
+-### Building Transmission from the nightly builds
+-
+-Download a tarball from https://build.transmissionbt.com/job/trunk-linux/ and follow the steps from the previous section.
+-
+-If you're new to building programs from source code, this is typically easier than building from Git.
+-
+-### Building Transmission from Git (first time)
+-
+-```bash
+-$ git clone --recurse-submodules https://github.com/transmission/transmission Transmission
+-$ cd Transmission
+-# Use -DCMAKE_BUILD_TYPE=RelWithDebInfo to build optimized binary with debug information. (preferred)
+-# Use -DCMAKE_BUILD_TYPE=Release to build full optimized binary.
+-$ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+-$ cd build
+-$ cmake --build .
+-$ sudo cmake --install .
++ docker build -f Dockerfile.builder . -t transmission:builder
++ docker build . -t transmission:latest
+ ```
+ 
+-### Building Transmission from Git (updating)
+-
+-```bash
+-$ cd Transmission/build
+-$ cmake --build . -t clean
+-$ git submodule foreach --recursive git clean -xfd
+-$ git pull --rebase --prune
+-$ git submodule update --init --recursive
+-$ cmake --build .
+-$ sudo cmake --install .
++## Sync With Upstream
++Run the following whenever the upstream repository has new commits:
+ ```
++git remote add upstream https://github.com/transmission/transmission.git
+ 
+-## Contributing
++# Update remote information
++git fetch upstream
+ 
+-### Code Style
++# Update main to exactly match upstream/main
++git switch main
++git reset --hard upstream/main
++git push origin main --force-with-lease
+ 
+-You would want to setup your editor to make use of the .clang-format file located in the root of this repository and the eslint/prettier rules in web/package.json.
++# Rebase custom patches on top of the latest upstream
++git switch patch/zero-download
++git rebase main
+ 
+-If for some reason you are unwilling or unable to do so, there is a shell script which you can use: `./code_style.sh`
+-
+-### Translations
+-
+-See [language translations](docs/Translating.md).
+-
+-## Sponsors
+-
+-<table>
+- <tbody>
+-  <tr>
+-   <td align="center"><img alt="[MacStadium]" src="https://uploads-ssl.webflow.com/5ac3c046c82724970fc60918/5c019d917bba312af7553b49_MacStadium-developerlogo.png" height="30"/></td>
+-   <td>macOS CI builds are running on a M1 Mac Mini provided by <a href="https://www.macstadium.com/company/opensource">MacStadium</a></td>
+-  </tr>
+-  <tr>
+-   <td align="center"><img alt="[SignPath]" src="https://avatars.githubusercontent.com/u/34448643" height="30"/></td>
+-   <td>Free code signing on Windows provided by <a href="https://signpath.io/?utm_source=foundation&utm_medium=github&utm_campaign=transmission">SignPath.io</a>, certificate by <a href="https://signpath.org/?utm_source=foundation&utm_medium=github&utm_campaign=transmission">SignPath Foundation</a></td>
+-  </tr>
+- </tbody>
+-</table>
++# Push the updated patch branch 
++git push origin patch/zero-download --force-with-lease
++```
+diff --git a/libtransmission/announcer-http.cc b/libtransmission/announcer-http.cc
+index 6d673575a..678f65db1 100644
+--- a/libtransmission/announcer-http.cc
++++ b/libtransmission/announcer-http.cc
+@@ -184,6 +184,8 @@ void onAnnounceDone(tr_web::FetchResponse const& web_response)
+ 
+ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_request const& req)
+ {
++    uint64_t const zero_down = 0ULL;
++
+     url.clear();
+     auto out = std::back_inserter(url);
+ 
+@@ -209,7 +211,7 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
+         fmt::arg("peer_id", std::string_view{ std::data(req.peer_id), std::size(req.peer_id) }),
+         fmt::arg("port", req.port.host()),
+         fmt::arg("uploaded", req.up),
+-        fmt::arg("downloaded", req.down),
++        fmt::arg("downloaded", zero_down),
+         fmt::arg("left", req.leftUntilComplete),
+         fmt::arg("numwant", req.numwant),
+         fmt::arg("key", req.key));
+@@ -224,9 +226,12 @@ void announce_url_new(tr_urlbuf& url, tr_session const* session, tr_announce_req
+         fmt::format_to(out, "&corrupt={}", req.corrupt);
+     }
+ 
+-    if (auto const str = get_event_string(req); !std::empty(str))
++    if (req.event != TR_ANNOUNCE_EVENT_COMPLETED)
+     {
+-        fmt::format_to(out, "&event={}", str);
++        if (auto const str = get_event_string(req); !std::empty(str))
++        {
++            fmt::format_to(out, "&event={}", str);
++        }
+     }
+ 
+     if (!std::empty(req.tracker_id))
+diff --git a/libtransmission/announcer-udp.cc b/libtransmission/announcer-udp.cc
+index 539a54765..31cd2a6b5 100644
+--- a/libtransmission/announcer-udp.cc
++++ b/libtransmission/announcer-udp.cc
+@@ -236,7 +236,7 @@ struct tau_announce_request
+     {
+         // https://www.bittorrent.org/beps/bep_0015.html sets key size at 32 bits
+         static_assert(sizeof(tr_announce_request::key) == sizeof(uint32_t));
+-
++        uint64_t const zero_down = 0ULL;
+         response.info_hash = in.info_hash;
+ 
+         // build the payload
+@@ -244,7 +244,7 @@ struct tau_announce_request
+         payload.add_uint32(transaction_id);
+         payload.add(in.info_hash);
+         payload.add(in.peer_id);
+-        payload.add_uint64(in.down);
++        payload.add_uint64(zero_down);
+         payload.add_uint64(in.leftUntilComplete);
+         payload.add_uint64(in.up);
+         payload.add_uint32(get_tau_announce_event(in.event));
+@@ -339,7 +339,7 @@ private:
+         switch (e)
+         {
+         case TR_ANNOUNCE_EVENT_COMPLETED:
+-            return TAU_ANNOUNCE_EVENT_COMPLETED;
++            return TAU_ANNOUNCE_EVENT_NONE;
+ 
+         case TR_ANNOUNCE_EVENT_STARTED:
+             return TAU_ANNOUNCE_EVENT_STARTED;
+diff --git a/libtransmission/announcer.cc b/libtransmission/announcer.cc
+index d0ca91580..256350938 100644
+--- a/libtransmission/announcer.cc
++++ b/libtransmission/announcer.cc
+@@ -822,28 +822,29 @@ void tier_announce_event_push(tr_tier* tier, tr_announce_event e, time_t announc
+ {
+     TR_ASSERT(tier != nullptr);
+ 
++    if (e == TR_ANNOUNCE_EVENT_COMPLETED)
++    {
++        tr_logAddTrace_tier_announce_queue(tier);
++        tr_logAddTraceTier(tier, fmt::format("ignored '{}'", tr_announce_event_get_string(e)));
++        return;
++    }
++
+     tr_logAddTrace_tier_announce_queue(tier);
+     tr_logAddTraceTier(tier, fmt::format("queued '{}'", tr_announce_event_get_string(e)));
+ 
+     auto& events = tier->announce_events;
+     if (!std::empty(events))
+     {
+-        /* special case #1: if we're adding a "stopped" event,
+-         * dump everything leading up to it except "completed" */
++        // Purge any lingering 'Completed' events that might have bypassed earlier logic
++        events.erase(std::remove(events.begin(), events.end(), TR_ANNOUNCE_EVENT_COMPLETED), events.end());
++
++        // If stopping, clear the entire queue unconditionally
+         if (e == TR_ANNOUNCE_EVENT_STOPPED)
+         {
+-            auto const has_completed = std::ranges::find(events, TR_ANNOUNCE_EVENT_COMPLETED) != std::ranges::end(events);
+             events.clear();
+-            if (has_completed)
+-            {
+-                events.push_back(TR_ANNOUNCE_EVENT_COMPLETED);
+-            }
+         }
+ 
+-        /* special case #2: dump all empty strings leading up to this event */
+         tier_announce_remove_trailing(tier, TR_ANNOUNCE_EVENT_NONE);
+-
+-        /* special case #3: no consecutive duplicates */
+         tier_announce_remove_trailing(tier, e);
+     }
+ 
+@@ -927,17 +928,20 @@ void on_announce_error(tr_tier* tier, std::string_view err, tr_announce_event e,
+ {
+     auto const* const current_tracker = tier->currentTracker();
+     TR_ASSERT(current_tracker != nullptr);
++    uint64_t const zero_down = 0ULL;
++    //auto leftUntilComplete = tor->has_metainfo() ? tor->total_size() - tor->has_total() : INT64_MAX;
++    auto leftUntilComplete = tor->has_metainfo() ? tor->total_size() : INT64_MAX;
+ 
+     return {
+-        .event = event,
++        .event = (event == TR_ANNOUNCE_EVENT_COMPLETED) ? TR_ANNOUNCE_EVENT_NONE : event,
+         .partial_seed = tor->is_partial_seed(),
+         .port = announcer->session->advertisedPeerPort(),
+         .key = tor->announce_key(),
+         .numwant = event == TR_ANNOUNCE_EVENT_STOPPED ? 0 : Numwant,
+         .up = tier->byteCounts[TR_ANN_UP],
+-        .down = tier->byteCounts[TR_ANN_DOWN],
++        .down = zero_down,
+         .corrupt = tier->byteCounts[TR_ANN_CORRUPT],
+-        .leftUntilComplete = tor->has_metainfo() ? tor->total_size() - tor->has_total() : INT64_MAX,
++        .leftUntilComplete = leftUntilComplete,
+         .announce_url = current_tracker->announce_url,
+         .tracker_id = current_tracker->tracker_id,
+         .peer_id = tor->peer_id(),
+@@ -1184,7 +1188,7 @@ void tr_announcer_impl::stopTorrent(tr_torrent* tor)
+ 
+ void tr_announcerTorrentCompleted(tr_torrent* tor)
+ {
+-    torrentAddAnnounce(tor, TR_ANNOUNCE_EVENT_COMPLETED, tr_time());
++    //torrentAddAnnounce(tor, TR_ANNOUNCE_EVENT_COMPLETED, tr_time());
+ }
+ 
+ void tr_announcerChangeMyPort(tr_torrent* tor)
+-- 
+2.52.0
+
